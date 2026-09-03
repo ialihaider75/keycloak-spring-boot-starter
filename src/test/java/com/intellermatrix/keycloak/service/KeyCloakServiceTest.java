@@ -5,6 +5,8 @@ import com.intellermatrix.keycloak.config.KeyCloakConfig;
 import com.intellermatrix.keycloak.config.RoleDefinition;
 import com.intellermatrix.keycloak.dto.AccessTokenResponse;
 import com.intellermatrix.keycloak.dto.KeyCloakPingResponse;
+import com.intellermatrix.keycloak.dto.role.RoleAssignmentRequest;
+import com.intellermatrix.keycloak.dto.role.RoleDetailsResponse;
 import com.intellermatrix.keycloak.dto.user.UserCreationRequest;
 import com.intellermatrix.keycloak.dto.user.UserDetailsResponse;
 import com.intellermatrix.keycloak.exception.KeycloakErrorReason;
@@ -24,10 +26,13 @@ import java.net.URI;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class KeyCloakServiceTest {
@@ -215,6 +220,88 @@ class KeyCloakServiceTest {
                 .thenReturn(List.of(userDetails));
 
         var result = keyCloakService.getUserByUsername("john");
+
+        assertThat(result.id()).isEqualTo("user-id-123");
+        assertThat(result.username()).isEqualTo("john");
+    }
+
+    @Test
+    void shouldAssignClientRoleToUser_whenAssignmentSucceeds() {
+        when(keyCloakExchangeClient.getAccessTokenForRealm(eq("demo-realm"), any()))
+                .thenReturn(accessTokenResponse("client-token"));
+        when(keyCloakExchangeClient.getAccessTokenForRealm(eq("master"), any()))
+                .thenReturn(accessTokenResponse("admin-token"));
+        when(keyCloakClientContext.getClientUuid()).thenReturn("client-uuid");
+        var roleDetails = new RoleDetailsResponse("role-id-123", "CUSTOMER", "Customer role", false, "client-uuid");
+        when(keyCloakExchangeClient.getClientRoleDetailsByRoleName(any(), eq("demo-realm"), eq("client-uuid"), eq("CUSTOMER")))
+                .thenReturn(roleDetails);
+
+        assertThatCode(() -> keyCloakService.assignClientRoleToUser("user-id-123", "CUSTOMER"))
+                .doesNotThrowAnyException();
+
+        var expectedRoleAssignment = RoleAssignmentRequest.builder().id("role-id-123").name("CUSTOMER").build();
+        verify(keyCloakExchangeClient).assignClientRoleToUser(any(), eq("demo-realm"), eq("user-id-123"),
+                eq("client-uuid"), eq(List.of(expectedRoleAssignment)));
+    }
+
+    @Test
+    void shouldThrowKeycloakIntegrationException_whenAssigningRoleToUserFails() {
+        when(keyCloakExchangeClient.getAccessTokenForRealm(eq("demo-realm"), any()))
+                .thenReturn(accessTokenResponse("client-token"));
+        when(keyCloakExchangeClient.getAccessTokenForRealm(eq("master"), any()))
+                .thenReturn(accessTokenResponse("admin-token"));
+        when(keyCloakClientContext.getClientUuid()).thenReturn("client-uuid");
+        var roleDetails = new RoleDetailsResponse("role-id-123", "CUSTOMER", "Customer role", false, "client-uuid");
+        when(keyCloakExchangeClient.getClientRoleDetailsByRoleName(any(), eq("demo-realm"), eq("client-uuid"), eq("CUSTOMER")))
+                .thenReturn(roleDetails);
+        doThrow(new RuntimeException("assignment failed"))
+                .when(keyCloakExchangeClient)
+                .assignClientRoleToUser(any(), eq("demo-realm"), eq("user-id-123"), eq("client-uuid"), any());
+
+        assertThatThrownBy(() -> keyCloakService.assignClientRoleToUser("user-id-123", "CUSTOMER"))
+                .isInstanceOf(KeycloakIntegrationException.class)
+                .extracting(exception -> ((KeycloakIntegrationException) exception).getReason())
+                .isEqualTo(KeycloakErrorReason.COMMUNICATION_ERROR);
+    }
+
+    @Test
+    void shouldReturnUserClientRoles_whenFetchSucceeds() {
+        when(keyCloakExchangeClient.getAccessTokenForRealm(eq("demo-realm"), any()))
+                .thenReturn(accessTokenResponse("client-token"));
+        when(keyCloakClientContext.getClientUuid()).thenReturn("client-uuid");
+        var roleDetails = new RoleDetailsResponse("role-id-123", "CUSTOMER", "Customer role", false, "client-uuid");
+        when(keyCloakExchangeClient.getClientRolesForUser(any(), eq("demo-realm"), eq("user-id-123"), eq("client-uuid")))
+                .thenReturn(List.of(roleDetails));
+
+        var result = keyCloakService.getUserClientRoles("user-id-123");
+
+        assertThat(result).containsExactly(roleDetails);
+    }
+
+    @Test
+    void shouldThrowKeycloakIntegrationException_whenFetchingUserClientRolesFails() {
+        when(keyCloakExchangeClient.getAccessTokenForRealm(eq("demo-realm"), any()))
+                .thenReturn(accessTokenResponse("client-token"));
+        when(keyCloakClientContext.getClientUuid()).thenReturn("client-uuid");
+        when(keyCloakExchangeClient.getClientRolesForUser(any(), eq("demo-realm"), eq("user-id-123"), eq("client-uuid")))
+                .thenThrow(new RuntimeException("not found"));
+
+        assertThatThrownBy(() -> keyCloakService.getUserClientRoles("user-id-123"))
+                .isInstanceOf(KeycloakIntegrationException.class)
+                .extracting(exception -> ((KeycloakIntegrationException) exception).getReason())
+                .isEqualTo(KeycloakErrorReason.COMMUNICATION_ERROR);
+    }
+
+    @Test
+    void shouldReturnUserDetails_whenUserFoundById() {
+        when(keyCloakExchangeClient.getAccessTokenForRealm(eq("master"), any()))
+                .thenReturn(accessTokenResponse("admin-token"));
+        var userDetails = new UserDetailsResponse("user-id-123", "john", "john@test.com", "John", "Doe",
+                true, true, 1234L, null, null);
+        when(keyCloakExchangeClient.getUserById(any(), eq("demo-realm"), eq("user-id-123")))
+                .thenReturn(userDetails);
+
+        var result = keyCloakService.getUserById("user-id-123");
 
         assertThat(result.id()).isEqualTo("user-id-123");
         assertThat(result.username()).isEqualTo("john");
