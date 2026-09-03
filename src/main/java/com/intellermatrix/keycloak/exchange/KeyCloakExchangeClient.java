@@ -44,7 +44,7 @@ public interface KeyCloakExchangeClient {
     void createRealm(@RequestHeader("Authorization") String bearerToken,
                      @RequestBody CreateRealmRequest realmRequest);
 
-    @GetExchange(value = "/admin/realms/{realmId}/clients/?clientId=clientId", accept = "application/json")
+    @GetExchange(value = "/admin/realms/{realmId}/clients", accept = "application/json")
     List<ClientDetailsResponse> getClientDetails(@RequestHeader("Authorization") String bearerToken,
                                                  @PathVariable("realmId") String realmId,
                                                  @RequestParam("clientId") String clientId);

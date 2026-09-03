@@ -31,7 +31,7 @@ import java.util.stream.Collectors;
 public class KeyCloakExchangeClientConfigs {
 
     private static final String CLIENT_NAME = "Key Cloak Client";
-    private static final String EXCEPTION_LOG_TEMPLATE = "4xx Error occurred while calling %s.";
+    private static final String EXCEPTION_LOG_TEMPLATE = "Error occurred while calling %s.";
     private final KeyCloakConfig config;
 
     @Bean(name = "keyCloakExchangeClient")
@@ -90,8 +90,8 @@ public class KeyCloakExchangeClientConfigs {
         log.error("Error for {}: Request URI: {}, Response Body {}, Method: {}, Response Status Code: {}",
                 CLIENT_NAME,
                 request.getURI(),
-                request.getMethod().name(),
                 parseHttpResponseBody(response).orElse(null),
+                request.getMethod().name(),
                 response.getStatusCode());
     }
 
