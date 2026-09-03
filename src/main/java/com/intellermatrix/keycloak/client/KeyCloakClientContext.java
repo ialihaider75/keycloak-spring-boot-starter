@@ -1,4 +1,4 @@
-package com.intellermatrix.medihunt.keycloak.client;
+package com.intellermatrix.keycloak.client;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -16,7 +16,7 @@ public class KeyCloakClientContext {
     private String managementClientUuid;
 
     public String getClientUuid() {
-        if(clientUuid.isEmpty()){
+        if (clientUuid == null || clientUuid.isEmpty()) {
             log.warn("KeyCloak client UUID is not set in the context.");
             throw new IllegalStateException("KeyCloak client UUID is not set in the context.");
         }
@@ -29,7 +29,7 @@ public class KeyCloakClientContext {
     }
 
     public String getServiceAccountId() {
-        if(serviceAccountId.isEmpty()){
+        if (serviceAccountId == null || serviceAccountId.isEmpty()) {
             log.warn("KeyCloak service account ID is not set in the context.");
             throw new IllegalStateException("KeyCloak service account ID is not set in the context.");
         }
@@ -42,12 +42,13 @@ public class KeyCloakClientContext {
     }
 
     public String getManagementClientUuid() {
-        if(managementClientUuid.isEmpty()){
+        if (managementClientUuid == null || managementClientUuid.isEmpty()) {
             log.warn("KeyCloak management client UUID is not set in the context.");
             throw new IllegalStateException("KeyCloak management client UUID is not set in the context.");
         }
         return managementClientUuid;
     }
+
 
     public void setManagementClientUuid(String managementClientUuid) {
         log.info("Setting KeyCloak management client UUID: {}", managementClientUuid);
