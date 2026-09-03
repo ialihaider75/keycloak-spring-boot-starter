@@ -1,0 +1,278 @@
+package com.intellermatrix.keycloak.service;
+
+import com.intellermatrix.keycloak.client.KeyCloakClientContext;
+import com.intellermatrix.keycloak.config.KeyCloakConfig;
+import com.intellermatrix.keycloak.dto.AccessTokenResponse;
+import com.intellermatrix.keycloak.dto.KeyCloakPingResponse;
+import com.intellermatrix.keycloak.dto.role.RoleAssignmentRequest;
+import com.intellermatrix.keycloak.dto.role.RoleDetailsResponse;
+import com.intellermatrix.keycloak.dto.user.UserCreationRequest;
+import com.intellermatrix.keycloak.dto.user.UserDetailsResponse;
+import com.intellermatrix.keycloak.enums.AccessTokenType;
+import com.intellermatrix.keycloak.exception.KeycloakErrorReason;
+import com.intellermatrix.keycloak.exception.KeycloakIntegrationException;
+import com.intellermatrix.keycloak.exchange.KeyCloakExchangeClient;
+import com.intellermatrix.keycloak.preparator.AccessTokenRequestPreparatorFactory;
+import jakarta.validation.Validator;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang3.StringUtils;
+import org.springframework.http.HttpStatus;
+import org.springframework.stereotype.Service;
+import org.springframework.util.MultiValueMap;
+
+import java.util.List;
+import java.util.Objects;
+import java.util.Optional;
+
+@Service
+@RequiredArgsConstructor
+@Slf4j
+public class KeyCloakService {
+
+    private final KeyCloakExchangeClient keyCloakManagementExchangeClient;
+    private final KeyCloakExchangeClient keyCloakExchangeClient;
+    private final KeyCloakConfig keyCloakConfig;
+    private final AccessTokenRequestPreparatorFactory preparatorFactory;
+    private final KeyCloakClientContext keyCloakClientContext;
+    private final Validator validator;
+
+    public KeyCloakPingResponse pingKeyCloak() {
+        log.info("Pinging KeyCloak server...");
+        var keyCloakPingResponse = keyCloakManagementExchangeClient.pingKeyCloak();
+        log.info("Received response from KeyCloak server: {}", keyCloakPingResponse);
+        return keyCloakPingResponse;
+    }
+
+    public String getAdminAccessToken() {
+        log.info("Requesting admin access token from KeyCloak...");
+        var adminConfig = keyCloakConfig.admin();
+        final MultiValueMap<String, String> requestMap = getAccessTokenRequestMap(
+                adminConfig.username(),
+                adminConfig.password(),
+                adminConfig.clientId(),
+                null,
+                AccessTokenType.ADMIN
+        );
+        var accessTokenResponse = getAccessTokenForRealm(adminConfig.realm(), requestMap);
+        log.info("Received admin access token from KeyCloak");
+        return accessTokenResponse.accessToken();
+    }
+
+    public String getClientAccessToken() {
+        log.info("Requesting client access token from KeyCloak for clientId: {}", keyCloakConfig.realm().client().id());
+        var clientConfig = keyCloakConfig.realm().client();
+        final MultiValueMap<String, String> requestMap = getAccessTokenRequestMap(
+                null,
+                null,
+                clientConfig.id(),
+                clientConfig.secret(),
+                AccessTokenType.CLIENT
+        );
+        var accessTokenResponse = getAccessTokenForRealm(keyCloakConfig.realm().id(), requestMap);
+        log.info("Received client access token from KeyCloak for clientId: {}", clientConfig.id());
+        return accessTokenResponse.accessToken();
+    }
+
+    public Optional<AccessTokenResponse> getAccessTokenResponseForUsernameAndPasswordCombination(String username, String password) {
+        validateUsernameAndPassword(username, password);
+        log.info("Getting access token for user: {} from KeyCloak", username);
+        var clientConfig = keyCloakConfig.realm().client();
+        final MultiValueMap<String, String> requestMap = getAccessTokenRequestMap(
+                username,
+                password,
+                clientConfig.id(),
+                clientConfig.secret(),
+                AccessTokenType.USER
+        );
+        try {
+            var accessTokenResponse = getAccessTokenForRealm(keyCloakConfig.realm().id(), requestMap);
+            log.info("Received access token for user: {} from KeyCloak", username);
+            return Optional.of(accessTokenResponse);
+        } catch (Exception e) {
+            log.error("Authentication failed for user: {} with KeyCloak", username);
+            return Optional.empty();
+        }
+    }
+
+    public Optional<String> createUser(UserCreationRequest userRequest) {
+
+        validateUserCreationRequest(userRequest);
+
+        var accessToken = getClientAccessToken();
+        var bearerToken = String.format("Bearer %s", accessToken);
+
+        log.info("Creating user in KeyCloak realm: {} with username: {}", keyCloakConfig.realm().id(), userRequest.username());
+
+        try {
+            var response = keyCloakExchangeClient.createUser(
+                    bearerToken,
+                    keyCloakConfig.realm().id(),
+                    userRequest
+            );
+            var locationHeader = response.getHeaders().getLocation();
+            if (Objects.nonNull(locationHeader)) {
+                log.info("User created successfully: {}", userRequest.username());
+                var userId = StringUtils.substringAfterLast(locationHeader.getPath(), "/");
+                log.info("New user ID for created user on keycloak : {}", userId);
+                return Optional.of(userId);
+            } else {
+                log.error("Failed to create user: {}", userRequest.username());
+                return Optional.empty();
+            }
+        } catch (Exception e) {
+            log.error("Error while creating user: {}", userRequest.username(), e);
+            return Optional.empty();
+        }
+    }
+
+    public RoleDetailsResponse getClientRoleDetailsByRoleName(String roleName) {
+        var adminAccessToken = getAdminAccessToken();
+        var bearerToken = String.format("Bearer %s", adminAccessToken);
+        try {
+            log.info("Fetching role details for role: {} in client: {}",
+                    roleName,
+                    keyCloakConfig.realm().client().id());
+            var roleDetails = keyCloakExchangeClient.getClientRoleDetailsByRoleName(
+                    bearerToken,
+                    keyCloakConfig.realm().id(),
+                    keyCloakClientContext.getClientUuid(),
+                    roleName
+            );
+
+            log.info("Fetched role details for role: {}: {}", roleName, roleDetails);
+            return roleDetails;
+        } catch (Exception e) {
+            log.error("Error while fetching role details for role: {}", roleName, e);
+            throw new KeycloakIntegrationException(KeycloakErrorReason.COMMUNICATION_ERROR,
+                    "Error while fetching role details from KeyCloak",
+                    HttpStatus.BAD_GATEWAY);
+        }
+    }
+
+    public void assignClientRoleToUser(String userId, String roleName) {
+        var clientAccessToken = getClientAccessToken();
+        var bearerToken = String.format("Bearer %s", clientAccessToken);
+        log.info("Assigning role: {} to user: {} in client: {}",
+                roleName,
+                userId,
+                keyCloakConfig.realm().client().id());
+        try {
+            var roleDetails = getClientRoleDetailsByRoleName(roleName);
+
+            var roleAssignmentRequest = RoleAssignmentRequest.builder()
+                    .id(roleDetails.id())
+                    .name(roleDetails.name())
+                    .build();
+
+            keyCloakExchangeClient.assignClientRoleToUser(
+                    bearerToken,
+                    keyCloakConfig.realm().id(),
+                    userId,
+                    keyCloakClientContext.getClientUuid(),
+                    List.of(roleAssignmentRequest)
+            );
+            log.info("Assigned role: {} to user: {} successfully", roleName, userId);
+        } catch (Exception e) {
+            log.error("Error while assigning role: {} to user: {}", roleName, userId, e);
+            throw new KeycloakIntegrationException(KeycloakErrorReason.COMMUNICATION_ERROR,
+                    "Error while assigning role to user in KeyCloak",
+                    HttpStatus.BAD_GATEWAY);
+        }
+    }
+
+    public List<RoleDetailsResponse> getUserClientRoles(String userId) {
+        var clientAccessToken = getClientAccessToken();
+        var bearerToken = String.format("Bearer %s", clientAccessToken);
+        log.info("Fetching assigned role details for user: {} in client: {}",
+                userId,
+                keyCloakConfig.realm().client().id());
+        try {
+            var assignedRoles = keyCloakExchangeClient.getClientRolesForUser(
+                    bearerToken,
+                    keyCloakConfig.realm().id(),
+                    userId,
+                    keyCloakClientContext.getClientUuid()
+            );
+            log.info("Fetched assigned roles for user: {}: {}", userId, assignedRoles);
+            return assignedRoles;
+        } catch (Exception e) {
+            log.error("Error while fetching assigned roles for user: {}", userId, e);
+            throw new KeycloakIntegrationException(KeycloakErrorReason.COMMUNICATION_ERROR,
+                    "Error while fetching assigned roles from KeyCloak",
+                    HttpStatus.BAD_GATEWAY);
+        }
+    }
+
+    public UserDetailsResponse getUserByUsername(String username) {
+        var clientAccessToken = getClientAccessToken();
+        var bearerToken = String.format("Bearer %s", clientAccessToken);
+
+        log.info("Fetching user details for username: {} from KeyCloak realm: {}",
+                username, keyCloakConfig.realm().id());
+
+        List<UserDetailsResponse> users = keyCloakExchangeClient.getUsersByUsername(
+                bearerToken,
+                keyCloakConfig.realm().id(),
+                username
+        );
+
+        if (users == null || users.isEmpty()) {
+            log.error("User not found with username: {}", username);
+            throw new KeycloakIntegrationException(KeycloakErrorReason.USER_NOT_FOUND,
+                    "User not found with username: " + username,
+                    HttpStatus.NOT_FOUND);
+        }
+
+        log.info("User details retrieved successfully for username: {}", username);
+        return users.getFirst();
+    }
+
+    public UserDetailsResponse getUserById(String userId) {
+        var adminAccessToken = getAdminAccessToken();
+        var bearerToken = String.format("Bearer %s", adminAccessToken);
+
+        log.info("Fetching user details for userId: {} from KeyCloak realm: {}",
+                userId, keyCloakConfig.realm().id());
+
+        UserDetailsResponse user = keyCloakExchangeClient.getUserById(
+                bearerToken,
+                keyCloakConfig.realm().id(),
+                userId
+        );
+
+        log.info("User details retrieved successfully for userId: {}", userId);
+        return user;
+    }
+
+    private AccessTokenResponse getAccessTokenForRealm(String realm, MultiValueMap<String, String> request) {
+        log.info("Requesting access token for realm: {}", realm);
+        var accessTokenResponse = keyCloakExchangeClient.getAccessTokenForRealm(realm, request);
+        log.info("Received access token response for realm: {}", realm);
+        return accessTokenResponse;
+    }
+
+    private MultiValueMap<String, String> getAccessTokenRequestMap(String username,
+                                                                    String password,
+                                                                    String clientId,
+                                                                    String clientSecret,
+                                                                    AccessTokenType type) {
+        return preparatorFactory.getPreparator(type)
+                .prepareAccessTokenRequest(username, password, clientId, clientSecret);
+    }
+
+    private void validateUserCreationRequest(UserCreationRequest userRequest) {
+        var validationErrors = validator.validate(userRequest);
+        if (!validationErrors.isEmpty()) {
+            log.error("UserCreationRequest validation failed: {}", validationErrors);
+            throw new RuntimeException(String.format("UserCreationRequest validation failed: %s", validationErrors));
+        }
+    }
+
+    private void validateUsernameAndPassword(String username, String password) {
+        if (StringUtils.isBlank(username) || StringUtils.isBlank(password)) {
+            log.error("Username or password cannot be blank");
+            throw new IllegalArgumentException("Username or password cannot be blank");
+        }
+    }
+}
