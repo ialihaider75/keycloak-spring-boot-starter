@@ -27,7 +27,7 @@ class AuthServerServiceTest {
     private final AuthServerService authServerService = new AuthServerService(keyCloakService, validator);
 
     @Test
-    void shouldThrowRuntimeException_whenRegistrationRequestIsMissingUsername() {
+    void shouldThrowKeycloakIntegrationException_whenRegistrationRequestIsMissingUsername() {
         var request = UserRegistrationRequest.builder()
                 .password("Secret@123")
                 .email("john@test.com")
@@ -37,8 +37,10 @@ class AuthServerServiceTest {
                 .build();
 
         assertThatThrownBy(() -> authServerService.createUserInAuthServer(request))
-                .isInstanceOf(RuntimeException.class)
-                .hasMessageContaining("UserRegistrationRequest validation failed");
+                .isInstanceOf(KeycloakIntegrationException.class)
+                .hasMessageContaining("UserRegistrationRequest validation failed")
+                .extracting(exception -> ((KeycloakIntegrationException) exception).getReason())
+                .isEqualTo(KeycloakErrorReason.INVALID_REQUEST);
     }
 
     @Test
@@ -114,6 +116,48 @@ class AuthServerServiceTest {
 
         assertThat(result).isPresent();
         assertThat(result.get().role()).isEqualTo("CUSTOMER");
+    }
+
+    @Test
+    void shouldReturnEmptyOptional_whenUserHasNoClientRoleAssigned() {
+        var rawUserDetails = new com.intellermatrix.keycloak.dto.user.UserDetailsResponse(
+                "user-id-123", "john", "john@test.com", "John", "Doe", true, true, 1234L, null, null);
+        when(keyCloakService.getUserByUsername("john")).thenReturn(rawUserDetails);
+        when(keyCloakService.getUserClientRoles("user-id-123")).thenReturn(List.of());
+
+        var result = authServerService.getUserDetailsByUsername("john");
+
+        assertThat(result).isEmpty();
+    }
+
+    @Test
+    void shouldPropagateUnexpectedRuntimeException_whenUserLookupFailsUnexpectedly() {
+        when(keyCloakService.getUserByUsername("john")).thenThrow(new IllegalStateException("bug"));
+
+        assertThatThrownBy(() -> authServerService.getUserDetailsByUsername("john"))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("bug");
+    }
+
+    @Test
+    void shouldPropagateUserAlreadyExists_whenKeyCloakReportsConflictOnCreate() {
+        var request = UserRegistrationRequest.builder()
+                .username("john")
+                .password("Secret@123")
+                .email("john@test.com")
+                .firstName("John")
+                .lastName("Doe")
+                .role("CUSTOMER")
+                .build();
+
+        when(keyCloakService.createUser(any(UserCreationRequest.class)))
+                .thenThrow(new KeycloakIntegrationException(KeycloakErrorReason.USER_ALREADY_EXISTS,
+                        "already exists", org.springframework.http.HttpStatus.CONFLICT));
+
+        assertThatThrownBy(() -> authServerService.createUserInAuthServer(request))
+                .isInstanceOf(KeycloakIntegrationException.class)
+                .extracting(exception -> ((KeycloakIntegrationException) exception).getReason())
+                .isEqualTo(KeycloakErrorReason.USER_ALREADY_EXISTS);
     }
 
     @Test

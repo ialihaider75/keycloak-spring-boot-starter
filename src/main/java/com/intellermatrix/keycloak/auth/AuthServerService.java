@@ -29,11 +29,16 @@ public class AuthServerService {
         try {
             var userDetails = keyCloakService.getUserByUsername(username);
             var roles = keyCloakService.getUserClientRoles(userDetails.id());
+            if (roles.isEmpty()) {
+                log.warn("User: {} exists in {} but has no client role assigned, treating lookup as unresolved",
+                        username, AUTH_SERVER_NAME);
+                return Optional.empty();
+            }
             log.info("Fetched user details for username: {} from {}", username, AUTH_SERVER_NAME);
             var localUserDetailsResponse = UserDetailsResponse.of(userDetails, roles.getFirst());
             return Optional.of(localUserDetailsResponse);
-        } catch (Exception e) {
-            log.warn("No user details found for username: {} in {}", username, AUTH_SERVER_NAME);
+        } catch (KeycloakIntegrationException e) {
+            log.warn("No user details found for username: {} in {}, reason: {}", username, AUTH_SERVER_NAME, e.getReason());
             return Optional.empty();
         }
     }
@@ -103,7 +108,9 @@ public class AuthServerService {
         if (!validationErrors.isEmpty()) {
             log.error("Validation errors during user creation for username: {} in {}: {}", request.username(),
                     AUTH_SERVER_NAME, validationErrors);
-            throw new RuntimeException(String.format("UserRegistrationRequest validation failed: %s", validationErrors));
+            throw new KeycloakIntegrationException(KeycloakErrorReason.INVALID_REQUEST,
+                    String.format("UserRegistrationRequest validation failed: %s", validationErrors),
+                    HttpStatus.BAD_REQUEST);
         }
     }
 
@@ -112,7 +119,9 @@ public class AuthServerService {
         if (!validationErrors.isEmpty()) {
             log.error("Validation errors during authentication for user: {} via {}: {}", keyCloakAuthUserRequest.username(),
                     AUTH_SERVER_NAME, validationErrors);
-            throw new RuntimeException(String.format("KeyCloakAuthUserRequest validation failed: %s", validationErrors));
+            throw new KeycloakIntegrationException(KeycloakErrorReason.INVALID_REQUEST,
+                    String.format("KeyCloakAuthUserRequest validation failed: %s", validationErrors),
+                    HttpStatus.BAD_REQUEST);
         }
     }
 }

@@ -3,6 +3,7 @@ package com.intellermatrix.keycloak.config;
 import com.intellermatrix.keycloak.exception.KeycloakErrorReason;
 import com.intellermatrix.keycloak.exception.KeycloakIntegrationException;
 import org.junit.jupiter.api.Test;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
@@ -11,6 +12,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withBadRequest;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withServerError;
+import static org.springframework.test.web.client.response.MockRestResponseCreators.withStatus;
 
 class KeyCloakExchangeClientConfigsTest {
 
@@ -37,6 +39,22 @@ class KeyCloakExchangeClientConfigsTest {
                 .isInstanceOf(KeycloakIntegrationException.class)
                 .extracting(exception -> ((KeycloakIntegrationException) exception).getReason())
                 .isEqualTo(KeycloakErrorReason.INVALID_REQUEST);
+    }
+
+    @Test
+    void shouldKeepConflictStatusOnException_whenServerRespondsWith409() {
+        var builder = RestClient.builder();
+        var mockServer = MockRestServiceServer.bindTo(builder).build();
+        var restClient = exchangeClientConfigs.applyErrorHandlers(builder).build();
+
+        mockServer.expect(requestTo("/admin/realms/demo-realm/users"))
+                .andRespond(withStatus(HttpStatus.CONFLICT).contentType(MediaType.APPLICATION_JSON)
+                        .body("{\"errorMessage\":\"User exists with same username\"}"));
+
+        assertThatThrownBy(() -> restClient.post().uri("/admin/realms/demo-realm/users").retrieve().toBodilessEntity())
+                .isInstanceOf(KeycloakIntegrationException.class)
+                .extracting(exception -> ((KeycloakIntegrationException) exception).getHttpStatus())
+                .isEqualTo(HttpStatus.CONFLICT);
     }
 
     @Test

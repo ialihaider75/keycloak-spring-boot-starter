@@ -6,6 +6,7 @@ import com.intellermatrix.keycloak.dto.client.ClientCreationRequest;
 import com.intellermatrix.keycloak.dto.realm.CreateRealmRequest;
 import com.intellermatrix.keycloak.dto.role.RoleAssignmentRequest;
 import com.intellermatrix.keycloak.dto.role.RoleCreationRequest;
+import com.intellermatrix.keycloak.dto.role.RoleDetailsResponse;
 import com.intellermatrix.keycloak.exchange.KeyCloakExchangeClient;
 import com.intellermatrix.keycloak.service.KeyCloakService;
 import jakarta.annotation.PostConstruct;
@@ -14,11 +15,23 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
+import java.util.Set;
+import java.util.stream.Collectors;
+
 @Component
 @ConditionalOnProperty(prefix = "external-services.keycloak", name = "auto-provision", havingValue = "true", matchIfMissing = true)
 @RequiredArgsConstructor
 @Slf4j
 public class KeyCloakInitializer {
+
+    /**
+     * Realm-management roles the client's service account needs so that all per-request operations
+     * can run on the client access token instead of master-realm admin credentials:
+     * the {@code *-users} roles cover user creation/lookup and role-mapping, {@code view-clients}
+     * covers reading the client's own role definitions.
+     */
+    private static final Set<String> REQUIRED_REALM_MANAGEMENT_ROLES =
+            Set.of("manage-users", "view-users", "query-users", "view-clients");
 
     private final KeyCloakService keyCloakService;
     private final KeyCloakConfig keyCloakConfig;
@@ -86,7 +99,9 @@ public class KeyCloakInitializer {
         }
 
         var realmManagementClientDetails = clientDetailsList.getFirst();
-        log.info("'{}' client details retrieved: {}", keyCloakConfig.realm().management().clientId(), realmManagementClientDetails);
+        log.info("'{}' client retrieved with UUID {}",
+                keyCloakConfig.realm().management().clientId(),
+                realmManagementClientDetails.id());
         keyCloakClientContext.setManagementClientUuid(realmManagementClientDetails.id());
     }
 
@@ -134,14 +149,17 @@ public class KeyCloakInitializer {
                     keyCloakConfig.realm().id(),
                     keyCloakConfig.realm().client().id()
             );
-            log.info("Newly created client details: {}", clientList.getFirst());
+            log.info("Newly created KeyCloak client '{}' in realm '{}' has UUID {}",
+                    keyCloakConfig.realm().client().id(),
+                    keyCloakConfig.realm().id(),
+                    clientList.getFirst().id());
             keyCloakClientContext.setClientUuid(clientList.getFirst().id());
 
         } else {
-            log.info("KeyCloak client '{}' already exists in realm '{}': {}, skipping creation of client ...",
+            log.info("KeyCloak client '{}' already exists in realm '{}' with UUID {}, skipping creation of client ...",
                     keyCloakConfig.realm().client().id(),
                     keyCloakConfig.realm().id(),
-                    clientDetails);
+                    clientDetails.getFirst().id());
             keyCloakClientContext.setClientUuid(clientDetails.getFirst().id());
         }
     }
@@ -168,40 +186,61 @@ public class KeyCloakInitializer {
                 keyCloakClientContext.getServiceAccountId(),
                 keyCloakClientContext.getManagementClientUuid()
         );
-        if (!assignedRoles.isEmpty()) {
-            log.info("Assigned roles retrieved: {}", assignedRoles);
-        } else {
-            var roles = keyCloakExchangeClient.getClientRoles(bearerToken,
-                    keyCloakConfig.realm().id(),
-                    keyCloakClientContext.getManagementClientUuid());
 
-            var rolesAssignmentRequest = roles
-                    .stream()
-                    .filter(role -> role.name().contains("users"))
-                    .map(role -> RoleAssignmentRequest
-                            .builder()
-                            .id(role.id())
-                            .name(role.name())
-                            .build())
-                    .toList();
+        var assignedRoleNames = assignedRoles.stream()
+                .map(RoleDetailsResponse::name)
+                .collect(Collectors.toSet());
 
-            log.warn("No Realm management roles assigned to service account ID: {} of client : {}, going to assign roles {}",
+        var missingRoleNames = REQUIRED_REALM_MANAGEMENT_ROLES.stream()
+                .filter(roleName -> !assignedRoleNames.contains(roleName))
+                .collect(Collectors.toSet());
+
+        if (missingRoleNames.isEmpty()) {
+            log.info("All required realm management roles {} are already assigned to service account ID: {} of client : {}",
+                    REQUIRED_REALM_MANAGEMENT_ROLES,
                     keyCloakClientContext.getServiceAccountId(),
-                    keyCloakConfig.realm().client().id(),
-                    rolesAssignmentRequest);
-
-            keyCloakExchangeClient.assignClientRolesToUser(
-                    bearerToken,
-                    keyCloakConfig.realm().id(),
-                    keyCloakClientContext.getServiceAccountId(),
-                    keyCloakClientContext.getManagementClientUuid(),
-                    rolesAssignmentRequest
-            );
-            log.info("Total {} Realm management Roles assigned successfully to service account ID: {} of client : {}",
-                    rolesAssignmentRequest.size(),
-                    keyCloakConfig.realm().client().id(),
-                    keyCloakClientContext.getServiceAccountId());
+                    keyCloakConfig.realm().client().id());
+            return;
         }
+
+        var roles = keyCloakExchangeClient.getClientRoles(bearerToken,
+                keyCloakConfig.realm().id(),
+                keyCloakClientContext.getManagementClientUuid());
+
+        var rolesAssignmentRequest = roles
+                .stream()
+                .filter(role -> missingRoleNames.contains(role.name()))
+                .map(role -> RoleAssignmentRequest
+                        .builder()
+                        .id(role.id())
+                        .name(role.name())
+                        .build())
+                .toList();
+
+        if (rolesAssignmentRequest.isEmpty()) {
+            log.warn("Required realm management roles {} are not available on client '{}' in realm '{}', nothing to assign",
+                    missingRoleNames,
+                    keyCloakConfig.realm().management().clientId(),
+                    keyCloakConfig.realm().id());
+            return;
+        }
+
+        log.warn("Realm management roles {} are missing for service account ID: {} of client : {}, going to assign them",
+                missingRoleNames,
+                keyCloakClientContext.getServiceAccountId(),
+                keyCloakConfig.realm().client().id());
+
+        keyCloakExchangeClient.assignClientRolesToUser(
+                bearerToken,
+                keyCloakConfig.realm().id(),
+                keyCloakClientContext.getServiceAccountId(),
+                keyCloakClientContext.getManagementClientUuid(),
+                rolesAssignmentRequest
+        );
+        log.info("Total {} Realm management Roles assigned successfully to service account ID: {} of client : {}",
+                rolesAssignmentRequest.size(),
+                keyCloakClientContext.getServiceAccountId(),
+                keyCloakConfig.realm().client().id());
     }
 
     private void shouldCreateRolesOnClientLevelIfNotExists(String bearerToken) {

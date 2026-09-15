@@ -120,6 +120,16 @@ public class KeyCloakService {
                 log.error("Failed to create user: {}", userRequest.username());
                 return Optional.empty();
             }
+        } catch (KeycloakIntegrationException e) {
+            if (HttpStatus.CONFLICT.equals(e.getHttpStatus())) {
+                log.error("User already exists in KeyCloak with username: {} or email: {}",
+                        userRequest.username(), userRequest.email());
+                throw new KeycloakIntegrationException(KeycloakErrorReason.USER_ALREADY_EXISTS,
+                        String.format("User already exists in KeyCloak with username: %s", userRequest.username()),
+                        HttpStatus.CONFLICT);
+            }
+            log.error("Error while creating user: {}", userRequest.username(), e);
+            return Optional.empty();
         } catch (Exception e) {
             log.error("Error while creating user: {}", userRequest.username(), e);
             return Optional.empty();
@@ -127,8 +137,8 @@ public class KeyCloakService {
     }
 
     public RoleDetailsResponse getClientRoleDetailsByRoleName(String roleName) {
-        var adminAccessToken = getAdminAccessToken();
-        var bearerToken = String.format("Bearer %s", adminAccessToken);
+        var clientAccessToken = getClientAccessToken();
+        var bearerToken = String.format("Bearer %s", clientAccessToken);
         try {
             log.info("Fetching role details for role: {} in client: {}",
                     roleName,
@@ -214,7 +224,8 @@ public class KeyCloakService {
         List<UserDetailsResponse> users = keyCloakExchangeClient.getUsersByUsername(
                 bearerToken,
                 keyCloakConfig.realm().id(),
-                username
+                username,
+                true
         );
 
         if (users == null || users.isEmpty()) {
@@ -229,8 +240,8 @@ public class KeyCloakService {
     }
 
     public UserDetailsResponse getUserById(String userId) {
-        var adminAccessToken = getAdminAccessToken();
-        var bearerToken = String.format("Bearer %s", adminAccessToken);
+        var clientAccessToken = getClientAccessToken();
+        var bearerToken = String.format("Bearer %s", clientAccessToken);
 
         log.info("Fetching user details for userId: {} from KeyCloak realm: {}",
                 userId, keyCloakConfig.realm().id());
@@ -265,14 +276,18 @@ public class KeyCloakService {
         var validationErrors = validator.validate(userRequest);
         if (!validationErrors.isEmpty()) {
             log.error("UserCreationRequest validation failed: {}", validationErrors);
-            throw new RuntimeException(String.format("UserCreationRequest validation failed: %s", validationErrors));
+            throw new KeycloakIntegrationException(KeycloakErrorReason.INVALID_REQUEST,
+                    String.format("UserCreationRequest validation failed: %s", validationErrors),
+                    HttpStatus.BAD_REQUEST);
         }
     }
 
     private void validateUsernameAndPassword(String username, String password) {
         if (StringUtils.isBlank(username) || StringUtils.isBlank(password)) {
             log.error("Username or password cannot be blank");
-            throw new IllegalArgumentException("Username or password cannot be blank");
+            throw new KeycloakIntegrationException(KeycloakErrorReason.INVALID_REQUEST,
+                    "Username or password cannot be blank",
+                    HttpStatus.BAD_REQUEST);
         }
     }
 }

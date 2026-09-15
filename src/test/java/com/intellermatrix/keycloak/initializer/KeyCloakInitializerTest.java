@@ -6,6 +6,7 @@ import com.intellermatrix.keycloak.config.RoleDefinition;
 import com.intellermatrix.keycloak.dto.KeyCloakPingResponse;
 import com.intellermatrix.keycloak.dto.client.ClientDetailsResponse;
 import com.intellermatrix.keycloak.dto.realm.GetRealmResponse;
+import com.intellermatrix.keycloak.dto.role.RoleAssignmentRequest;
 import com.intellermatrix.keycloak.dto.role.RoleDetailsResponse;
 import com.intellermatrix.keycloak.dto.serviceaccount.ServiceAccountUserResponse;
 import com.intellermatrix.keycloak.exchange.KeyCloakExchangeClient;
@@ -16,6 +17,7 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
@@ -91,6 +93,41 @@ class KeyCloakInitializerTest {
                 argThat(request -> request.name().equals("CUSTOMER") && request.description().equals("Customer role")));
     }
 
+    @Test
+    void shouldAssignOnlyMissingRealmManagementRoles_whenServiceAccountIsPartiallyEntitled() {
+        when(keyCloakService.pingKeyCloak()).thenReturn(new KeyCloakPingResponse("UP", List.of()));
+        when(keyCloakService.getAdminAccessToken()).thenReturn("admin-token");
+        stubSuccessfulProvisioning();
+        when(keyCloakExchangeClient.getRealmManagementRolesForServiceAccount(anyString(), eq("demo-realm"), anyString(), anyString()))
+                .thenReturn(List.of(new RoleDetailsResponse("role-id-1", "manage-users", "desc", false, "mgmt-uuid")));
+        when(keyCloakExchangeClient.getClientRoles(anyString(), eq("demo-realm"), eq("mgmt-uuid")))
+                .thenReturn(List.of(
+                        new RoleDetailsResponse("role-id-1", "manage-users", "desc", false, "mgmt-uuid"),
+                        new RoleDetailsResponse("role-id-2", "view-users", "desc", false, "mgmt-uuid"),
+                        new RoleDetailsResponse("role-id-3", "query-users", "desc", false, "mgmt-uuid"),
+                        new RoleDetailsResponse("role-id-4", "view-clients", "desc", false, "mgmt-uuid"),
+                        new RoleDetailsResponse("role-id-5", "manage-realm", "desc", false, "mgmt-uuid")));
+
+        keyCloakInitializer.init();
+
+        verify(keyCloakExchangeClient).assignClientRolesToUser(anyString(), eq("demo-realm"), eq("service-account-id"),
+                eq("mgmt-uuid"), argThat(requests -> requests.stream().map(RoleAssignmentRequest::name).toList()
+                        .containsAll(List.of("view-users", "query-users", "view-clients"))
+                        && requests.size() == 3));
+    }
+
+    @Test
+    void shouldNotAssignRealmManagementRoles_whenServiceAccountAlreadyHasAllRequiredRoles() {
+        when(keyCloakService.pingKeyCloak()).thenReturn(new KeyCloakPingResponse("UP", List.of()));
+        when(keyCloakService.getAdminAccessToken()).thenReturn("admin-token");
+        stubSuccessfulProvisioning();
+
+        keyCloakInitializer.init();
+
+        verify(keyCloakExchangeClient, never()).assignClientRolesToUser(anyString(), anyString(), anyString(),
+                anyString(), anyList());
+    }
+
     private void stubSuccessfulProvisioning() {
         when(keyCloakExchangeClient.getRealmDetails(anyString(), eq("demo-realm")))
                 .thenReturn(new GetRealmResponse("id", "demo-realm", "Demo Realm"));
@@ -106,7 +143,11 @@ class KeyCloakInitializerTest {
         when(keyCloakExchangeClient.getServiceAccountUserForClient(anyString(), eq("demo-realm"), eq("client-uuid")))
                 .thenReturn(new ServiceAccountUserResponse("service-account-id", "service-account-demo-client", true));
         when(keyCloakExchangeClient.getRealmManagementRolesForServiceAccount(anyString(), eq("demo-realm"), anyString(), anyString()))
-                .thenReturn(List.of(new RoleDetailsResponse("role-id", "manage-users", "desc", false, "mgmt-uuid")));
+                .thenReturn(List.of(
+                        new RoleDetailsResponse("role-id-1", "manage-users", "desc", false, "mgmt-uuid"),
+                        new RoleDetailsResponse("role-id-2", "view-users", "desc", false, "mgmt-uuid"),
+                        new RoleDetailsResponse("role-id-3", "query-users", "desc", false, "mgmt-uuid"),
+                        new RoleDetailsResponse("role-id-4", "view-clients", "desc", false, "mgmt-uuid")));
         when(keyCloakExchangeClient.getClientRoleDetailsByRoleName(anyString(), eq("demo-realm"), eq("client-uuid"), eq("CUSTOMER")))
                 .thenReturn(new RoleDetailsResponse("role-id", "CUSTOMER", "Customer role", false, "client-uuid"));
     }

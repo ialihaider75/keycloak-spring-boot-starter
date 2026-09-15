@@ -1,0 +1,10 @@
+{
+  "properties": [
+    {
+      "name": "external-services.keycloak.auto-provision",
+      "type": "java.lang.Boolean",
+      "description": "Whether the starter provisions the configured realm, client, service-account permissions and client roles in Keycloak at application startup. When false, the KeyCloakInitializer bean is not registered and the Keycloak objects must already exist.",
+      "defaultValue": true
+    }
+  ]
+}

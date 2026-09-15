@@ -114,7 +114,8 @@ public interface KeyCloakExchangeClient {
     @GetExchange(value = "/admin/realms/{realm}/users", accept = "application/json")
     List<UserDetailsResponse> getUsersByUsername(@RequestHeader("Authorization") String bearerToken,
                                                  @PathVariable String realm,
-                                                 @RequestParam("username") String username);
+                                                 @RequestParam("username") String username,
+                                                 @RequestParam("exact") boolean exact);
 
     @GetExchange(value = "/admin/realms/{realm}/users/{userId}", accept = "application/json")
     UserDetailsResponse getUserById(@RequestHeader("Authorization") String bearerToken,

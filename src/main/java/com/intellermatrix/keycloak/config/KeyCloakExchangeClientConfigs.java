@@ -22,6 +22,7 @@ import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
@@ -71,7 +72,7 @@ public class KeyCloakExchangeClientConfigs {
                 .defaultStatusHandler(HttpStatusCode::is4xxClientError, ((request, response) -> {
                     logError(request, response);
                     throw new KeycloakIntegrationException(KeycloakErrorReason.INVALID_REQUEST,
-                            String.format(EXCEPTION_LOG_TEMPLATE, CLIENT_NAME), HttpStatus.BAD_REQUEST);
+                            String.format(EXCEPTION_LOG_TEMPLATE, CLIENT_NAME), resolveClientErrorStatus(response));
                 }))
                 .defaultStatusHandler(HttpStatusCode::is5xxServerError, ((request, response) -> {
                     logError(request, response);
@@ -83,7 +84,18 @@ public class KeyCloakExchangeClientConfigs {
     private ClientHttpRequestFactory getSimpleClientHttpRequestFactory() {
         var factory = new SimpleClientHttpRequestFactory();
         factory.setConnectTimeout(config.connectivity().timeoutInMs());
+        factory.setReadTimeout(config.connectivity().timeoutInMs());
         return factory;
+    }
+
+    /**
+     * Keeps the real client-error status on the thrown exception so callers can react to specific
+     * statuses (e.g. a 409 on user creation meaning the username/email is already taken) instead of
+     * seeing every 4xx flattened into {@code 400 BAD_REQUEST}.
+     */
+    private HttpStatus resolveClientErrorStatus(ClientHttpResponse response) throws IOException {
+        var resolvedStatus = HttpStatus.resolve(response.getStatusCode().value());
+        return Objects.isNull(resolvedStatus) ? HttpStatus.BAD_REQUEST : resolvedStatus;
     }
 
     private void logError(HttpRequest request, ClientHttpResponse response) throws IOException {
