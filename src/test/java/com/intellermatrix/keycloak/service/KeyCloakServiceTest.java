@@ -299,6 +299,26 @@ class KeyCloakServiceTest {
     }
 
     @Test
+    void shouldFetchClientAccessTokenOnlyOnce_whenFetchingUserWithRoles() {
+        when(keyCloakExchangeClient.getAccessTokenForRealm(eq("demo-realm"), any()))
+                .thenReturn(accessTokenResponse("client-token"));
+        when(keyCloakClientContext.getClientUuid()).thenReturn("client-uuid");
+        var userDetails = new UserDetailsResponse("user-id-123", "john", "john@test.com", "John", "Doe",
+                true, true, 1234L, null, null);
+        when(keyCloakExchangeClient.getUsersByUsername(any(), eq("demo-realm"), eq("john"), eq(true)))
+                .thenReturn(List.of(userDetails));
+        var roleDetails = new RoleDetailsResponse("role-id-123", "CUSTOMER", "Customer role", false, "client-uuid");
+        when(keyCloakExchangeClient.getClientRolesForUser(any(), eq("demo-realm"), eq("user-id-123"), eq("client-uuid")))
+                .thenReturn(List.of(roleDetails));
+
+        var result = keyCloakService.getUserWithRolesByUsername("john");
+
+        assertThat(result.userDetails().id()).isEqualTo("user-id-123");
+        assertThat(result.roles()).containsExactly(roleDetails);
+        verify(keyCloakExchangeClient, times(1)).getAccessTokenForRealm(eq("demo-realm"), any());
+    }
+
+    @Test
     void shouldAssignClientRoleToUser_whenAssignmentSucceeds() {
         when(keyCloakExchangeClient.getAccessTokenForRealm(eq("demo-realm"), any()))
                 .thenReturn(accessTokenResponse("client-token"));
