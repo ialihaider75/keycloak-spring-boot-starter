@@ -2,6 +2,7 @@ package com.intellermatrix.keycloak.initializer;
 
 import com.intellermatrix.keycloak.client.KeyCloakClientContext;
 import com.intellermatrix.keycloak.config.KeyCloakConfig;
+import com.intellermatrix.keycloak.constant.HttpHeaderConstants;
 import com.intellermatrix.keycloak.dto.client.ClientCreationRequest;
 import com.intellermatrix.keycloak.dto.realm.CreateRealmRequest;
 import com.intellermatrix.keycloak.dto.role.RoleAssignmentRequest;
@@ -47,7 +48,7 @@ public class KeyCloakInitializer {
         log.info("KeyCloak server is reachable, proceeding with provisioning.");
 
         var bearerToken = keyCloakService.getAdminAccessToken()
-                .transform(accessToken -> String.format("Bearer %s", accessToken));
+                .transform(accessToken -> String.format(HttpHeaderConstants.BEARER_TOKEN_FORMAT, accessToken));
 
         createRealmIfNotExists(bearerToken);
         retrieveRealmManagementClientDetails(bearerToken);
