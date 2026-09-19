@@ -129,10 +129,14 @@ public class KeyCloakService {
                         HttpStatus.CONFLICT);
             }
             log.error("Error while creating user: {}", userRequest.username(), e);
-            return Optional.empty();
+            throw new KeycloakIntegrationException(KeycloakErrorReason.COMMUNICATION_ERROR,
+                    "Error while creating user in KeyCloak",
+                    HttpStatus.BAD_GATEWAY);
         } catch (Exception e) {
             log.error("Error while creating user: {}", userRequest.username(), e);
-            return Optional.empty();
+            throw new KeycloakIntegrationException(KeycloakErrorReason.COMMUNICATION_ERROR,
+                    "Error while creating user in KeyCloak",
+                    HttpStatus.BAD_GATEWAY);
         }
     }
 
