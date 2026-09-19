@@ -393,6 +393,22 @@ class KeyCloakServiceTest {
     }
 
     @Test
+    void shouldThrowUserNotFound_whenFetchingUserByIdWithUnknownId() {
+        when(keyCloakExchangeClient.getAccessTokenForRealm(eq("demo-realm"), any()))
+                .thenReturn(accessTokenResponse("client-token"));
+        when(keyCloakExchangeClient.getUserById(any(), eq("demo-realm"), eq("user-id-123")))
+                .thenThrow(new KeycloakIntegrationException(KeycloakErrorReason.INVALID_REQUEST,
+                        "not found", HttpStatus.NOT_FOUND));
+
+        assertThatThrownBy(() -> keyCloakService.getUserById("user-id-123"))
+                .isInstanceOf(KeycloakIntegrationException.class)
+                .satisfies(exception -> assertThat(((KeycloakIntegrationException) exception).getHttpStatus())
+                        .isEqualTo(HttpStatus.NOT_FOUND))
+                .extracting(exception -> ((KeycloakIntegrationException) exception).getReason())
+                .isEqualTo(KeycloakErrorReason.USER_NOT_FOUND);
+    }
+
+    @Test
     void shouldThrowCommunicationError_whenFetchingUserByIdFails() {
         when(keyCloakExchangeClient.getAccessTokenForRealm(eq("demo-realm"), any()))
                 .thenReturn(accessTokenResponse("client-token"));
