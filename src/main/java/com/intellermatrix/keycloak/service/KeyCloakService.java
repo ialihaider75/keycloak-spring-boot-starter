@@ -203,6 +203,10 @@ public class KeyCloakService {
     public List<RoleDetailsResponse> getUserClientRoles(String userId) {
         var clientAccessToken = getClientAccessToken();
         var bearerToken = String.format(HttpHeaderConstants.BEARER_TOKEN_FORMAT, clientAccessToken);
+        return getUserClientRoles(userId, bearerToken);
+    }
+
+    private List<RoleDetailsResponse> getUserClientRoles(String userId, String bearerToken) {
         log.info("Fetching assigned role details for user: {} in client: {}",
                 userId,
                 keyCloakConfig.realm().client().id());
@@ -226,7 +230,10 @@ public class KeyCloakService {
     public UserDetailsResponse getUserByUsername(String username) {
         var clientAccessToken = getClientAccessToken();
         var bearerToken = String.format(HttpHeaderConstants.BEARER_TOKEN_FORMAT, clientAccessToken);
+        return getUserByUsername(username, bearerToken);
+    }
 
+    private UserDetailsResponse getUserByUsername(String username, String bearerToken) {
         log.info("Fetching user details for username: {} from KeyCloak realm: {}",
                 username, keyCloakConfig.realm().id());
 
@@ -254,6 +261,14 @@ public class KeyCloakService {
 
         log.info("User details retrieved successfully for username: {}", username);
         return users.getFirst();
+    }
+
+    public UserWithRoles getUserWithRolesByUsername(String username) {
+        var clientAccessToken = getClientAccessToken();
+        var bearerToken = String.format(HttpHeaderConstants.BEARER_TOKEN_FORMAT, clientAccessToken);
+        var userDetails = getUserByUsername(username, bearerToken);
+        var roles = getUserClientRoles(userDetails.id(), bearerToken);
+        return new UserWithRoles(userDetails, roles);
     }
 
     public UserDetailsResponse getUserById(String userId) {
