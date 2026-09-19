@@ -44,6 +44,24 @@ class AuthServerServiceTest {
     }
 
     @Test
+    void shouldThrowKeycloakIntegrationException_whenRegistrationRequestHasBlankRole() {
+        var request = UserRegistrationRequest.builder()
+                .username("john")
+                .password("Secret@123")
+                .email("john@test.com")
+                .firstName("John")
+                .lastName("Doe")
+                .role("")
+                .build();
+
+        assertThatThrownBy(() -> authServerService.createUserInAuthServer(request))
+                .isInstanceOf(KeycloakIntegrationException.class)
+                .hasMessageContaining("UserRegistrationRequest validation failed")
+                .extracting(exception -> ((KeycloakIntegrationException) exception).getReason())
+                .isEqualTo(KeycloakErrorReason.INVALID_REQUEST);
+    }
+
+    @Test
     void shouldCreateUserAndAssignRole_whenRegistrationRequestIsValid() {
         var request = UserRegistrationRequest.builder()
                 .username("john")
@@ -137,6 +155,19 @@ class AuthServerServiceTest {
         assertThatThrownBy(() -> authServerService.getUserDetailsByUsername("john"))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessage("bug");
+    }
+
+    @Test
+    void shouldPropagateException_whenClientRolesLookupFailsWithNonNotFoundReason() {
+        var rawUserDetails = new com.intellermatrix.keycloak.dto.user.UserDetailsResponse(
+                "user-id-123", "john", "john@test.com", "John", "Doe", true, true, 1234L, null, null);
+        var communicationError = new KeycloakIntegrationException(KeycloakErrorReason.COMMUNICATION_ERROR,
+                "KeyCloak is unavailable", org.springframework.http.HttpStatus.BAD_GATEWAY);
+        when(keyCloakService.getUserByUsername("john")).thenReturn(rawUserDetails);
+        when(keyCloakService.getUserClientRoles("user-id-123")).thenThrow(communicationError);
+
+        assertThatThrownBy(() -> authServerService.getUserDetailsByUsername("john"))
+                .isSameAs(communicationError);
     }
 
     @Test
