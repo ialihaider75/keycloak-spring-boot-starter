@@ -255,16 +255,53 @@ class KeyCloakServiceTest {
     }
 
     @Test
-    void shouldReturnEmptyOptional_whenCreateUserResponseHasNoLocationHeader() {
+    void shouldReturnEmptyOptional_whenCreateUserResponseHasNoLocationHeaderAndUserCannotBeFoundOnFallbackLookup() {
         var request = validUserCreationRequest();
         when(keyCloakExchangeClient.getAccessTokenForRealm(eq("demo-realm"), any()))
                 .thenReturn(accessTokenResponse("client-token"));
         when(keyCloakExchangeClient.createUser(any(), eq("demo-realm"), eq(request)))
                 .thenReturn(ResponseEntity.ok().build());
+        when(keyCloakExchangeClient.getUsersByUsername(any(), eq("demo-realm"), eq("john"), eq(true)))
+                .thenReturn(List.of());
 
         var userId = keyCloakService.createUser(request);
 
         assertThat(userId).isEmpty();
+    }
+
+    @Test
+    void shouldReturnUserId_whenCreateUserResponseHasNoLocationHeaderButUserIsFoundOnFallbackLookup() {
+        var request = validUserCreationRequest();
+        when(keyCloakExchangeClient.getAccessTokenForRealm(eq("demo-realm"), any()))
+                .thenReturn(accessTokenResponse("client-token"));
+        when(keyCloakExchangeClient.createUser(any(), eq("demo-realm"), eq(request)))
+                .thenReturn(ResponseEntity.ok().build());
+        var createdUser = new UserDetailsResponse("user-id-123", "john", "john@test.com", "John", "Doe",
+                true, true, 1234L, null, null);
+        when(keyCloakExchangeClient.getUsersByUsername(any(), eq("demo-realm"), eq("john"), eq(true)))
+                .thenReturn(List.of(createdUser));
+
+        var userId = keyCloakService.createUser(request);
+
+        assertThat(userId).contains("user-id-123");
+    }
+
+    @Test
+    void shouldThrowCommunicationError_whenCreateUserResponseHasNoLocationHeaderAndFallbackLookupFails() {
+        var request = validUserCreationRequest();
+        when(keyCloakExchangeClient.getAccessTokenForRealm(eq("demo-realm"), any()))
+                .thenReturn(accessTokenResponse("client-token"));
+        when(keyCloakExchangeClient.createUser(any(), eq("demo-realm"), eq(request)))
+                .thenReturn(ResponseEntity.ok().build());
+        when(keyCloakExchangeClient.getUsersByUsername(any(), eq("demo-realm"), eq("john"), eq(true)))
+                .thenThrow(new RuntimeException("connection reset"));
+
+        assertThatThrownBy(() -> keyCloakService.createUser(request))
+                .isInstanceOf(KeycloakIntegrationException.class)
+                .satisfies(exception -> assertThat(((KeycloakIntegrationException) exception).getHttpStatus())
+                        .isEqualTo(HttpStatus.BAD_GATEWAY))
+                .extracting(exception -> ((KeycloakIntegrationException) exception).getReason())
+                .isEqualTo(KeycloakErrorReason.COMMUNICATION_ERROR);
     }
 
     @Test
