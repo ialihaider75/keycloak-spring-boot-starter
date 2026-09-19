@@ -271,6 +271,17 @@ public class KeyCloakService {
             );
             log.info("User details retrieved successfully for userId: {}", userId);
             return user;
+        } catch (KeycloakIntegrationException e) {
+            if (HttpStatus.NOT_FOUND.equals(e.getHttpStatus())) {
+                log.error("User not found with userId: {}", userId);
+                throw new KeycloakIntegrationException(KeycloakErrorReason.USER_NOT_FOUND,
+                        "User not found with userId: " + userId,
+                        HttpStatus.NOT_FOUND);
+            }
+            log.error("Error while fetching user details for userId: {}", userId, e);
+            throw new KeycloakIntegrationException(KeycloakErrorReason.COMMUNICATION_ERROR,
+                    "Error while fetching user details from KeyCloak",
+                    HttpStatus.BAD_GATEWAY);
         } catch (Exception e) {
             log.error("Error while fetching user details for userId: {}", userId, e);
             throw new KeycloakIntegrationException(KeycloakErrorReason.COMMUNICATION_ERROR,
