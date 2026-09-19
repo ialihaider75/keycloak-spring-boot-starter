@@ -27,15 +27,14 @@ public class AuthServerService {
     public Optional<UserDetailsResponse> getUserDetailsByUsername(String username) {
         log.info("Fetching user details for username: {} from {}", username, AUTH_SERVER_NAME);
         try {
-            var userDetails = keyCloakService.getUserByUsername(username);
-            var roles = keyCloakService.getUserClientRoles(userDetails.id());
-            if (roles.isEmpty()) {
+            var userWithRoles = keyCloakService.getUserWithRolesByUsername(username);
+            if (userWithRoles.roles().isEmpty()) {
                 log.warn("User: {} exists in {} but has no client role assigned, treating lookup as unresolved",
                         username, AUTH_SERVER_NAME);
                 return Optional.empty();
             }
             log.info("Fetched user details for username: {} from {}", username, AUTH_SERVER_NAME);
-            var localUserDetailsResponse = UserDetailsResponse.of(userDetails, roles.getFirst());
+            var localUserDetailsResponse = UserDetailsResponse.of(userWithRoles.userDetails(), userWithRoles.roles().getFirst());
             return Optional.of(localUserDetailsResponse);
         } catch (KeycloakIntegrationException e) {
             if (e.getReason() != KeycloakErrorReason.USER_NOT_FOUND) {
