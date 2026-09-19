@@ -156,6 +156,14 @@ public class KeyCloakInitializer {
                     keyCloakConfig.realm().id(),
                     keyCloakConfig.realm().client().id()
             );
+
+            if (clientList.isEmpty()) {
+                throw new IllegalStateException(String.format(
+                        "KeyCloak client '%s' not found in realm '%s' immediately after creation",
+                        keyCloakConfig.realm().client().id(),
+                        keyCloakConfig.realm().id()));
+            }
+
             log.info("Newly created KeyCloak client '{}' in realm '{}' has UUID {}",
                     keyCloakConfig.realm().client().id(),
                     keyCloakConfig.realm().id(),
