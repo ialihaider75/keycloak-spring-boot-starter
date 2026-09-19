@@ -38,6 +38,11 @@ public class AuthServerService {
             var localUserDetailsResponse = UserDetailsResponse.of(userDetails, roles.getFirst());
             return Optional.of(localUserDetailsResponse);
         } catch (KeycloakIntegrationException e) {
+            if (e.getReason() != KeycloakErrorReason.USER_NOT_FOUND) {
+                log.error("Error while fetching user details for username: {} from {}, reason: {}",
+                        username, AUTH_SERVER_NAME, e.getReason());
+                throw e;
+            }
             log.warn("No user details found for username: {} in {}, reason: {}", username, AUTH_SERVER_NAME, e.getReason());
             return Optional.empty();
         }
