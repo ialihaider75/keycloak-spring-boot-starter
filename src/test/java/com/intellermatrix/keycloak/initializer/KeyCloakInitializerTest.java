@@ -9,10 +9,13 @@ import com.intellermatrix.keycloak.dto.realm.GetRealmResponse;
 import com.intellermatrix.keycloak.dto.role.RoleAssignmentRequest;
 import com.intellermatrix.keycloak.dto.role.RoleDetailsResponse;
 import com.intellermatrix.keycloak.dto.serviceaccount.ServiceAccountUserResponse;
+import com.intellermatrix.keycloak.exception.KeycloakErrorReason;
+import com.intellermatrix.keycloak.exception.KeycloakIntegrationException;
 import com.intellermatrix.keycloak.exchange.KeyCloakExchangeClient;
 import com.intellermatrix.keycloak.service.KeyCloakService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.http.HttpStatus;
 
 import java.util.List;
 
@@ -85,12 +88,42 @@ class KeyCloakInitializerTest {
         when(keyCloakService.getAdminAccessToken()).thenReturn("admin-token");
         stubSuccessfulProvisioning();
         when(keyCloakExchangeClient.getClientRoleDetailsByRoleName(anyString(), eq("demo-realm"), eq("client-uuid"), eq("CUSTOMER")))
-                .thenThrow(new RuntimeException("role not found"));
+                .thenThrow(new KeycloakIntegrationException(KeycloakErrorReason.INVALID_REQUEST, "role not found", HttpStatus.NOT_FOUND));
 
         keyCloakInitializer.init();
 
         verify(keyCloakExchangeClient).createClientRole(anyString(), eq("demo-realm"), eq("client-uuid"),
                 argThat(request -> request.name().equals("CUSTOMER") && request.description().equals("Customer role")));
+    }
+
+    @Test
+    void shouldPropagateException_whenRealmExistenceCheckFailsWithNonNotFoundError() {
+        when(keyCloakService.pingKeyCloak()).thenReturn(new KeyCloakPingResponse("UP", List.of()));
+        when(keyCloakService.getAdminAccessToken()).thenReturn("admin-token");
+        var serverError = new KeycloakIntegrationException(KeycloakErrorReason.INTERNAL_SERVER_ERROR,
+                "KeyCloak is unavailable", HttpStatus.INTERNAL_SERVER_ERROR);
+        when(keyCloakExchangeClient.getRealmDetails(anyString(), eq("demo-realm"))).thenThrow(serverError);
+
+        assertThatThrownBy(() -> keyCloakInitializer.init())
+                .isSameAs(serverError);
+
+        verify(keyCloakExchangeClient, never()).createRealm(anyString(), any());
+    }
+
+    @Test
+    void shouldPropagateException_whenRoleExistenceCheckFailsWithNonNotFoundError() {
+        when(keyCloakService.pingKeyCloak()).thenReturn(new KeyCloakPingResponse("UP", List.of()));
+        when(keyCloakService.getAdminAccessToken()).thenReturn("admin-token");
+        stubSuccessfulProvisioning();
+        var serverError = new KeycloakIntegrationException(KeycloakErrorReason.INTERNAL_SERVER_ERROR,
+                "KeyCloak is unavailable", HttpStatus.INTERNAL_SERVER_ERROR);
+        when(keyCloakExchangeClient.getClientRoleDetailsByRoleName(anyString(), eq("demo-realm"), eq("client-uuid"), eq("CUSTOMER")))
+                .thenThrow(serverError);
+
+        assertThatThrownBy(() -> keyCloakInitializer.init())
+                .isSameAs(serverError);
+
+        verify(keyCloakExchangeClient, never()).createClientRole(anyString(), anyString(), anyString(), any());
     }
 
     @Test
