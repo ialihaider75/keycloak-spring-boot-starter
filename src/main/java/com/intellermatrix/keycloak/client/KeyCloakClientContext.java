@@ -11,9 +11,9 @@ public class KeyCloakClientContext {
 
     // This class is temporary will move the storage of clientUUID into redis cache for future use.
 
-    private String clientUuid;
-    private String serviceAccountId;
-    private String managementClientUuid;
+    private volatile String clientUuid;
+    private volatile String serviceAccountId;
+    private volatile String managementClientUuid;
 
     public String getClientUuid() {
         if (clientUuid == null || clientUuid.isEmpty()) {
