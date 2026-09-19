@@ -181,7 +181,7 @@ class KeyCloakServiceTest {
     }
 
     @Test
-    void shouldReturnEmptyOptional_whenCreateUserFailsWithNonConflictClientError() {
+    void shouldThrowCommunicationError_whenCreateUserFailsWithNonConflictClientError() {
         var request = validUserCreationRequest();
         when(keyCloakExchangeClient.getAccessTokenForRealm(eq("demo-realm"), any()))
                 .thenReturn(accessTokenResponse("client-token"));
@@ -189,7 +189,28 @@ class KeyCloakServiceTest {
                 .thenThrow(new KeycloakIntegrationException(KeycloakErrorReason.INVALID_REQUEST,
                         "bad request", HttpStatus.BAD_REQUEST));
 
-        assertThat(keyCloakService.createUser(request)).isEmpty();
+        assertThatThrownBy(() -> keyCloakService.createUser(request))
+                .isInstanceOf(KeycloakIntegrationException.class)
+                .satisfies(exception -> assertThat(((KeycloakIntegrationException) exception).getHttpStatus())
+                        .isEqualTo(HttpStatus.BAD_GATEWAY))
+                .extracting(exception -> ((KeycloakIntegrationException) exception).getReason())
+                .isEqualTo(KeycloakErrorReason.COMMUNICATION_ERROR);
+    }
+
+    @Test
+    void shouldThrowCommunicationError_whenCreateUserFailsWithUnexpectedException() {
+        var request = validUserCreationRequest();
+        when(keyCloakExchangeClient.getAccessTokenForRealm(eq("demo-realm"), any()))
+                .thenReturn(accessTokenResponse("client-token"));
+        when(keyCloakExchangeClient.createUser(any(), eq("demo-realm"), eq(request)))
+                .thenThrow(new RuntimeException("connection reset"));
+
+        assertThatThrownBy(() -> keyCloakService.createUser(request))
+                .isInstanceOf(KeycloakIntegrationException.class)
+                .satisfies(exception -> assertThat(((KeycloakIntegrationException) exception).getHttpStatus())
+                        .isEqualTo(HttpStatus.BAD_GATEWAY))
+                .extracting(exception -> ((KeycloakIntegrationException) exception).getReason())
+                .isEqualTo(KeycloakErrorReason.COMMUNICATION_ERROR);
     }
 
     @Test
