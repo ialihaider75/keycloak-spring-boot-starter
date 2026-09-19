@@ -47,19 +47,26 @@ public class KeyCloakInitializer {
         keyCloakService.pingKeyCloak();
         log.info("KeyCloak server is reachable, proceeding with provisioning.");
 
-        var bearerToken = keyCloakService.getAdminAccessToken()
-                .transform(accessToken -> String.format(HttpHeaderConstants.BEARER_TOKEN_FORMAT, accessToken));
-
-        createRealmIfNotExists(bearerToken);
-        retrieveRealmManagementClientDetails(bearerToken);
-        createClientIfNotExists(bearerToken);
-        retrieveServiceAccountIdForClient(bearerToken);
-        assignRealmManagementRolesToServiceAccountIfNotExists(bearerToken);
-        createClientRolesIfNotExists(bearerToken);
+        createRealmIfNotExists();
+        retrieveRealmManagementClientDetails();
+        createClientIfNotExists();
+        retrieveServiceAccountIdForClient();
+        assignRealmManagementRolesToServiceAccountIfNotExists();
+        createClientRolesIfNotExists();
     }
 
-    private void createRealmIfNotExists(String bearerToken) {
+    /**
+     * Fetched fresh for each provisioning step rather than once for the whole sequence,
+     * so a long-running step (e.g. many configured roles) can't leave later steps with an expired admin token.
+     */
+    private String getAdminBearerToken() {
+        return keyCloakService.getAdminAccessToken()
+                .transform(accessToken -> String.format(HttpHeaderConstants.BEARER_TOKEN_FORMAT, accessToken));
+    }
+
+    private void createRealmIfNotExists() {
         log.info("Checking if KeyCloak realm '{}' exists...", keyCloakConfig.realm().id());
+        var bearerToken = getAdminBearerToken();
 
         try {
             var realmDetails = keyCloakExchangeClient.getRealmDetails(
@@ -92,8 +99,9 @@ public class KeyCloakInitializer {
         }
     }
 
-    private void retrieveRealmManagementClientDetails(String bearerToken) {
+    private void retrieveRealmManagementClientDetails() {
         log.info("Retrieving 'realm-management' client details for realm '{}'", keyCloakConfig.realm().id());
+        var bearerToken = getAdminBearerToken();
         var clientDetailsList = keyCloakExchangeClient.getClientDetails(
                 bearerToken,
                 keyCloakConfig.realm().id(),
@@ -113,10 +121,11 @@ public class KeyCloakInitializer {
         keyCloakClientContext.setManagementClientUuid(realmManagementClientDetails.id());
     }
 
-    private void createClientIfNotExists(String bearerToken) {
+    private void createClientIfNotExists() {
         log.info("Checking if KeyCloak client '{}' exists in realm '{}'...",
                 keyCloakConfig.realm().client().id(),
                 keyCloakConfig.realm().id());
+        var bearerToken = getAdminBearerToken();
 
         var clientDetails = keyCloakExchangeClient.getClientDetails(
                 bearerToken,
@@ -180,8 +189,9 @@ public class KeyCloakInitializer {
         }
     }
 
-    private void retrieveServiceAccountIdForClient(String bearerToken) {
+    private void retrieveServiceAccountIdForClient() {
         log.info("Retrieving service account user for client UUID: {}", keyCloakClientContext.getClientUuid());
+        var bearerToken = getAdminBearerToken();
         var serviceAccountUser = keyCloakExchangeClient.getServiceAccountUserForClient(
                 bearerToken,
                 keyCloakConfig.realm().id(),
@@ -191,10 +201,11 @@ public class KeyCloakInitializer {
         keyCloakClientContext.setServiceAccountId(serviceAccountUser.id());
     }
 
-    private void assignRealmManagementRolesToServiceAccountIfNotExists(String bearerToken) {
+    private void assignRealmManagementRolesToServiceAccountIfNotExists() {
         log.info("Retrieving realm management roles assigned to service account ID: {} of client : {}",
                 keyCloakClientContext.getServiceAccountId(),
                 keyCloakConfig.realm().client().id());
+        var bearerToken = getAdminBearerToken();
 
         var assignedRoles = keyCloakExchangeClient.getRealmManagementRolesForServiceAccount(
                 bearerToken,
@@ -259,7 +270,8 @@ public class KeyCloakInitializer {
                 keyCloakConfig.realm().client().id());
     }
 
-    private void createClientRolesIfNotExists(String bearerToken) {
+    private void createClientRolesIfNotExists() {
+        var bearerToken = getAdminBearerToken();
         var roles = keyCloakConfig.realm().roles();
         for (var role : roles) {
             try {
