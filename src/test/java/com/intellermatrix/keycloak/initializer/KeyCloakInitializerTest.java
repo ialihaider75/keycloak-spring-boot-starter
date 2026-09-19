@@ -127,6 +127,21 @@ class KeyCloakInitializerTest {
     }
 
     @Test
+    void shouldThrowIllegalStateException_whenNewlyCreatedClientCannotBeRetrieved() {
+        when(keyCloakService.pingKeyCloak()).thenReturn(new KeyCloakPingResponse("UP", List.of()));
+        when(keyCloakService.getAdminAccessToken()).thenReturn("admin-token");
+        stubSuccessfulProvisioning();
+        when(keyCloakExchangeClient.getClientDetails(anyString(), eq("demo-realm"), eq("demo-client")))
+                .thenReturn(List.of());
+
+        assertThatThrownBy(() -> keyCloakInitializer.init())
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("KeyCloak client 'demo-client' not found in realm 'demo-realm' immediately after creation");
+
+        verify(keyCloakClientContext, never()).setClientUuid(anyString());
+    }
+
+    @Test
     void shouldAssignOnlyMissingRealmManagementRoles_whenServiceAccountIsPartiallyEntitled() {
         when(keyCloakService.pingKeyCloak()).thenReturn(new KeyCloakPingResponse("UP", List.of()));
         when(keyCloakService.getAdminAccessToken()).thenReturn("admin-token");
