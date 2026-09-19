@@ -2,6 +2,7 @@ package com.intellermatrix.keycloak.service;
 
 import com.intellermatrix.keycloak.client.KeyCloakClientContext;
 import com.intellermatrix.keycloak.config.KeyCloakConfig;
+import com.intellermatrix.keycloak.constant.HttpHeaderConstants;
 import com.intellermatrix.keycloak.dto.AccessTokenResponse;
 import com.intellermatrix.keycloak.dto.KeyCloakPingResponse;
 import com.intellermatrix.keycloak.dto.role.RoleAssignmentRequest;
@@ -100,7 +101,7 @@ public class KeyCloakService {
         validateUserCreationRequest(userRequest);
 
         var accessToken = getClientAccessToken();
-        var bearerToken = String.format("Bearer %s", accessToken);
+        var bearerToken = String.format(HttpHeaderConstants.BEARER_TOKEN_FORMAT, accessToken);
 
         log.info("Creating user in KeyCloak realm: {} with username: {}", keyCloakConfig.realm().id(), userRequest.username());
 
@@ -142,7 +143,7 @@ public class KeyCloakService {
 
     public RoleDetailsResponse getClientRoleDetailsByRoleName(String roleName) {
         var clientAccessToken = getClientAccessToken();
-        var bearerToken = String.format("Bearer %s", clientAccessToken);
+        var bearerToken = String.format(HttpHeaderConstants.BEARER_TOKEN_FORMAT, clientAccessToken);
         try {
             log.info("Fetching role details for role: {} in client: {}",
                     roleName,
@@ -166,7 +167,7 @@ public class KeyCloakService {
 
     public void assignClientRoleToUser(String userId, String roleName) {
         var clientAccessToken = getClientAccessToken();
-        var bearerToken = String.format("Bearer %s", clientAccessToken);
+        var bearerToken = String.format(HttpHeaderConstants.BEARER_TOKEN_FORMAT, clientAccessToken);
         log.info("Assigning role: {} to user: {} in client: {}",
                 roleName,
                 userId,
@@ -197,7 +198,7 @@ public class KeyCloakService {
 
     public List<RoleDetailsResponse> getUserClientRoles(String userId) {
         var clientAccessToken = getClientAccessToken();
-        var bearerToken = String.format("Bearer %s", clientAccessToken);
+        var bearerToken = String.format(HttpHeaderConstants.BEARER_TOKEN_FORMAT, clientAccessToken);
         log.info("Fetching assigned role details for user: {} in client: {}",
                 userId,
                 keyCloakConfig.realm().client().id());
@@ -220,17 +221,25 @@ public class KeyCloakService {
 
     public UserDetailsResponse getUserByUsername(String username) {
         var clientAccessToken = getClientAccessToken();
-        var bearerToken = String.format("Bearer %s", clientAccessToken);
+        var bearerToken = String.format(HttpHeaderConstants.BEARER_TOKEN_FORMAT, clientAccessToken);
 
         log.info("Fetching user details for username: {} from KeyCloak realm: {}",
                 username, keyCloakConfig.realm().id());
 
-        List<UserDetailsResponse> users = keyCloakExchangeClient.getUsersByUsername(
-                bearerToken,
-                keyCloakConfig.realm().id(),
-                username,
-                true
-        );
+        List<UserDetailsResponse> users;
+        try {
+            users = keyCloakExchangeClient.getUsersByUsername(
+                    bearerToken,
+                    keyCloakConfig.realm().id(),
+                    username,
+                    true
+            );
+        } catch (Exception e) {
+            log.error("Error while fetching user details for username: {}", username, e);
+            throw new KeycloakIntegrationException(KeycloakErrorReason.COMMUNICATION_ERROR,
+                    "Error while fetching user details from KeyCloak",
+                    HttpStatus.BAD_GATEWAY);
+        }
 
         if (users == null || users.isEmpty()) {
             log.error("User not found with username: {}", username);
@@ -245,19 +254,25 @@ public class KeyCloakService {
 
     public UserDetailsResponse getUserById(String userId) {
         var clientAccessToken = getClientAccessToken();
-        var bearerToken = String.format("Bearer %s", clientAccessToken);
+        var bearerToken = String.format(HttpHeaderConstants.BEARER_TOKEN_FORMAT, clientAccessToken);
 
         log.info("Fetching user details for userId: {} from KeyCloak realm: {}",
                 userId, keyCloakConfig.realm().id());
 
-        UserDetailsResponse user = keyCloakExchangeClient.getUserById(
-                bearerToken,
-                keyCloakConfig.realm().id(),
-                userId
-        );
-
-        log.info("User details retrieved successfully for userId: {}", userId);
-        return user;
+        try {
+            UserDetailsResponse user = keyCloakExchangeClient.getUserById(
+                    bearerToken,
+                    keyCloakConfig.realm().id(),
+                    userId
+            );
+            log.info("User details retrieved successfully for userId: {}", userId);
+            return user;
+        } catch (Exception e) {
+            log.error("Error while fetching user details for userId: {}", userId, e);
+            throw new KeycloakIntegrationException(KeycloakErrorReason.COMMUNICATION_ERROR,
+                    "Error while fetching user details from KeyCloak",
+                    HttpStatus.BAD_GATEWAY);
+        }
     }
 
     private AccessTokenResponse getAccessTokenForRealm(String realm, MultiValueMap<String, String> request) {
