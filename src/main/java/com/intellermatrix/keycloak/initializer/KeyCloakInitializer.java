@@ -7,12 +7,14 @@ import com.intellermatrix.keycloak.dto.realm.CreateRealmRequest;
 import com.intellermatrix.keycloak.dto.role.RoleAssignmentRequest;
 import com.intellermatrix.keycloak.dto.role.RoleCreationRequest;
 import com.intellermatrix.keycloak.dto.role.RoleDetailsResponse;
+import com.intellermatrix.keycloak.exception.KeycloakIntegrationException;
 import com.intellermatrix.keycloak.exchange.KeyCloakExchangeClient;
 import com.intellermatrix.keycloak.service.KeyCloakService;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
 
 import java.util.Set;
@@ -51,8 +53,8 @@ public class KeyCloakInitializer {
         retrieveRealmManagementClientDetails(bearerToken);
         createClientIfNotExists(bearerToken);
         retrieveServiceAccountIdForClient(bearerToken);
-        shouldAssignRealmManagementRolesToServiceAccountIfNotExists(bearerToken);
-        shouldCreateRolesOnClientLevelIfNotExists(bearerToken);
+        assignRealmManagementRolesToServiceAccountIfNotExists(bearerToken);
+        createClientRolesIfNotExists(bearerToken);
     }
 
     private void createRealmIfNotExists(String bearerToken) {
@@ -66,7 +68,12 @@ public class KeyCloakInitializer {
 
             log.info("KeyCloak realm '{}' already exists: {}, skipping creation of realm ...",
                     keyCloakConfig.realm().id(), realmDetails);
-        } catch (Exception e) {
+        } catch (KeycloakIntegrationException e) {
+            if (!HttpStatus.NOT_FOUND.equals(e.getHttpStatus())) {
+                log.error("Error while checking existence of KeyCloak realm '{}': {}",
+                        keyCloakConfig.realm().id(), e.getMessage());
+                throw e;
+            }
             log.warn("KeyCloak realm '{}' does not exist. Creating new realm...", keyCloakConfig.realm().id());
 
             var createRealmRequest = CreateRealmRequest.builder()
@@ -175,7 +182,7 @@ public class KeyCloakInitializer {
         keyCloakClientContext.setServiceAccountId(serviceAccountUser.id());
     }
 
-    private void shouldAssignRealmManagementRolesToServiceAccountIfNotExists(String bearerToken) {
+    private void assignRealmManagementRolesToServiceAccountIfNotExists(String bearerToken) {
         log.info("Retrieving realm management roles assigned to service account ID: {} of client : {}",
                 keyCloakClientContext.getServiceAccountId(),
                 keyCloakConfig.realm().client().id());
@@ -243,7 +250,7 @@ public class KeyCloakInitializer {
                 keyCloakConfig.realm().client().id());
     }
 
-    private void shouldCreateRolesOnClientLevelIfNotExists(String bearerToken) {
+    private void createClientRolesIfNotExists(String bearerToken) {
         var roles = keyCloakConfig.realm().roles();
         for (var role : roles) {
             try {
@@ -256,7 +263,11 @@ public class KeyCloakInitializer {
                 log.info("Role '{}' already exists on client level: {}, skipping creation of role ...",
                         role.name(),
                         roleDetails);
-            } catch (Exception e) {
+            } catch (KeycloakIntegrationException e) {
+                if (!HttpStatus.NOT_FOUND.equals(e.getHttpStatus())) {
+                    log.error("Error while checking existence of role '{}' on client level: {}", role.name(), e.getMessage());
+                    throw e;
+                }
                 log.warn("Role '{}' does not exist on client level. Creating new role...", role.name());
 
                 var roleCreationRequest = RoleCreationRequest.builder()
