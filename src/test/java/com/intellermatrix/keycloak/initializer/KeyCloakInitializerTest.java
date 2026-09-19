@@ -78,8 +78,18 @@ class KeyCloakInitializerTest {
 
         var inOrder = inOrder(keyCloakService, keyCloakExchangeClient);
         inOrder.verify(keyCloakService).pingKeyCloak();
-        inOrder.verify(keyCloakService).getAdminAccessToken();
         inOrder.verify(keyCloakExchangeClient).getRealmDetails(anyString(), eq("demo-realm"));
+    }
+
+    @Test
+    void shouldFetchFreshAdminAccessTokenForEachProvisioningStep() {
+        when(keyCloakService.pingKeyCloak()).thenReturn(new KeyCloakPingResponse("UP", List.of()));
+        when(keyCloakService.getAdminAccessToken()).thenReturn("admin-token");
+        stubSuccessfulProvisioning();
+
+        keyCloakInitializer.init();
+
+        verify(keyCloakService, times(6)).getAdminAccessToken();
     }
 
     @Test
