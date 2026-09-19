@@ -128,10 +128,12 @@ public class KeyCloakService {
                 var userId = StringUtils.substringAfterLast(locationHeader.getPath(), "/");
                 log.info("New user ID for created user on keycloak : {}", userId);
                 return Optional.of(userId);
-            } else {
-                log.error("Failed to create user: {}", userRequest.username());
-                return Optional.empty();
             }
+
+            log.warn("KeyCloak create-user response for username: {} had no Location header; " +
+                    "looking up the user to confirm whether it was actually created", userRequest.username());
+            return fallBackLookUpOfUser(userRequest, bearerToken);
+
         } catch (KeycloakIntegrationException e) {
             if (HttpStatus.CONFLICT.equals(e.getHttpStatus())) {
                 log.error("User already exists in KeyCloak with username: {} or email: {}",
@@ -149,6 +151,20 @@ public class KeyCloakService {
             throw new KeycloakIntegrationException(KeycloakErrorReason.COMMUNICATION_ERROR,
                     "Error while creating user in KeyCloak",
                     HttpStatus.BAD_GATEWAY);
+        }
+    }
+
+    private Optional<String> fallBackLookUpOfUser(UserCreationRequest userRequest, String bearerToken) {
+        try {
+            var createdUser = getUserByUsername(userRequest.username(), bearerToken);
+            log.info("Confirmed user was created despite missing Location header: {}", userRequest.username());
+            return Optional.of(createdUser.id());
+        } catch (KeycloakIntegrationException lookupException) {
+            if (KeycloakErrorReason.USER_NOT_FOUND.equals(lookupException.getReason())) {
+                log.error("Failed to create user: {}", userRequest.username());
+                return Optional.empty();
+            }
+            throw lookupException;
         }
     }
 
