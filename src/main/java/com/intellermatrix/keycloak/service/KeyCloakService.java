@@ -172,6 +172,17 @@ public class KeyCloakService {
 
             log.info("Fetched role details for role: {}: {}", roleName, roleDetails);
             return roleDetails;
+        } catch (KeycloakIntegrationException e) {
+            if (HttpStatus.NOT_FOUND.equals(e.getHttpStatus())) {
+                log.warn("Role '{}' not found on client: {}", roleName, keyCloakConfig.realm().client().id());
+                throw new KeycloakIntegrationException(KeycloakErrorReason.ROLE_NOT_FOUND,
+                        "Role not found: " + roleName,
+                        HttpStatus.NOT_FOUND);
+            }
+            log.error("Error while fetching role details for role: {}", roleName, e);
+            throw new KeycloakIntegrationException(KeycloakErrorReason.COMMUNICATION_ERROR,
+                    "Error while fetching role details from KeyCloak",
+                    HttpStatus.BAD_GATEWAY);
         } catch (Exception e) {
             log.error("Error while fetching role details for role: {}", roleName, e);
             throw new KeycloakIntegrationException(KeycloakErrorReason.COMMUNICATION_ERROR,
@@ -203,6 +214,15 @@ public class KeyCloakService {
                     List.of(roleAssignmentRequest)
             );
             log.info("Assigned role: {} to user: {} successfully", roleName, userId);
+        } catch (KeycloakIntegrationException e) {
+            if (KeycloakErrorReason.ROLE_NOT_FOUND.equals(e.getReason())) {
+                log.error("Cannot assign role: {} to user: {} - role does not exist", roleName, userId);
+                throw e;
+            }
+            log.error("Error while assigning role: {} to user: {}", roleName, userId, e);
+            throw new KeycloakIntegrationException(KeycloakErrorReason.COMMUNICATION_ERROR,
+                    "Error while assigning role to user in KeyCloak",
+                    HttpStatus.BAD_GATEWAY);
         } catch (Exception e) {
             log.error("Error while assigning role: {} to user: {}", roleName, userId, e);
             throw new KeycloakIntegrationException(KeycloakErrorReason.COMMUNICATION_ERROR,
