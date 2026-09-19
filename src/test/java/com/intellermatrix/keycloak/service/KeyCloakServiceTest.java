@@ -34,6 +34,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -312,6 +313,20 @@ class KeyCloakServiceTest {
         var expectedRoleAssignment = RoleAssignmentRequest.builder().id("role-id-123").name("CUSTOMER").build();
         verify(keyCloakExchangeClient).assignClientRoleToUser(any(), eq("demo-realm"), eq("user-id-123"),
                 eq("client-uuid"), eq(List.of(expectedRoleAssignment)));
+    }
+
+    @Test
+    void shouldFetchClientAccessTokenOnlyOnce_whenAssigningRoleToUser() {
+        when(keyCloakExchangeClient.getAccessTokenForRealm(eq("demo-realm"), any()))
+                .thenReturn(accessTokenResponse("client-token"));
+        when(keyCloakClientContext.getClientUuid()).thenReturn("client-uuid");
+        var roleDetails = new RoleDetailsResponse("role-id-123", "CUSTOMER", "Customer role", false, "client-uuid");
+        when(keyCloakExchangeClient.getClientRoleDetailsByRoleName(any(), eq("demo-realm"), eq("client-uuid"), eq("CUSTOMER")))
+                .thenReturn(roleDetails);
+
+        keyCloakService.assignClientRoleToUser("user-id-123", "CUSTOMER");
+
+        verify(keyCloakExchangeClient, times(1)).getAccessTokenForRealm(eq("demo-realm"), any());
     }
 
     @Test
