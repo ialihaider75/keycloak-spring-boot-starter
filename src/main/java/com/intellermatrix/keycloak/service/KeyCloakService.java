@@ -144,6 +144,10 @@ public class KeyCloakService {
     public RoleDetailsResponse getClientRoleDetailsByRoleName(String roleName) {
         var clientAccessToken = getClientAccessToken();
         var bearerToken = String.format(HttpHeaderConstants.BEARER_TOKEN_FORMAT, clientAccessToken);
+        return getClientRoleDetailsByRoleName(roleName, bearerToken);
+    }
+
+    private RoleDetailsResponse getClientRoleDetailsByRoleName(String roleName, String bearerToken) {
         try {
             log.info("Fetching role details for role: {} in client: {}",
                     roleName,
@@ -173,7 +177,7 @@ public class KeyCloakService {
                 userId,
                 keyCloakConfig.realm().client().id());
         try {
-            var roleDetails = getClientRoleDetailsByRoleName(roleName);
+            var roleDetails = getClientRoleDetailsByRoleName(roleName, bearerToken);
 
             var roleAssignmentRequest = RoleAssignmentRequest.builder()
                     .id(roleDetails.id())
