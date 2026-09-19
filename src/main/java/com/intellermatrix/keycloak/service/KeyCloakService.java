@@ -90,9 +90,20 @@ public class KeyCloakService {
             var accessTokenResponse = getAccessTokenForRealm(keyCloakConfig.realm().id(), requestMap);
             log.info("Received access token for user: {} from KeyCloak", username);
             return Optional.of(accessTokenResponse);
+        } catch (KeycloakIntegrationException e) {
+            if (HttpStatus.UNAUTHORIZED.equals(e.getHttpStatus()) || HttpStatus.BAD_REQUEST.equals(e.getHttpStatus())) {
+                log.warn("Authentication failed for user: {} with KeyCloak - invalid credentials", username);
+                return Optional.empty();
+            }
+            log.error("Error while authenticating user: {} with KeyCloak", username, e);
+            throw new KeycloakIntegrationException(KeycloakErrorReason.COMMUNICATION_ERROR,
+                    "Error while authenticating user with KeyCloak",
+                    HttpStatus.BAD_GATEWAY);
         } catch (Exception e) {
-            log.error("Authentication failed for user: {} with KeyCloak", username);
-            return Optional.empty();
+            log.error("Error while authenticating user: {} with KeyCloak", username, e);
+            throw new KeycloakIntegrationException(KeycloakErrorReason.COMMUNICATION_ERROR,
+                    "Error while authenticating user with KeyCloak",
+                    HttpStatus.BAD_GATEWAY);
         }
     }
 
