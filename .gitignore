@@ -31,3 +31,9 @@ build/
 
 ### VS Code ###
 .vscode/
+
+### Worktrees ###
+.worktrees/
+
+### Local SDD working docs (plans, specs, review reports) ###
+docs/

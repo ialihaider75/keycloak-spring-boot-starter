@@ -1,0 +1,201 @@
+package com.intellermatrix.keycloak.auth;
+
+import com.intellermatrix.keycloak.dto.AccessTokenResponse;
+import com.intellermatrix.keycloak.dto.role.RoleDetailsResponse;
+import com.intellermatrix.keycloak.dto.user.UserCreationRequest;
+import com.intellermatrix.keycloak.exception.KeycloakErrorReason;
+import com.intellermatrix.keycloak.exception.KeycloakIntegrationException;
+import com.intellermatrix.keycloak.service.KeyCloakService;
+import com.intellermatrix.keycloak.service.UserWithRoles;
+import jakarta.validation.Validation;
+import jakarta.validation.Validator;
+import org.junit.jupiter.api.Test;
+
+import java.util.List;
+import java.util.Optional;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+
+class AuthServerServiceTest {
+
+    private final KeyCloakService keyCloakService = mock(KeyCloakService.class);
+    private final Validator validator = Validation.buildDefaultValidatorFactory().getValidator();
+    private final AuthServerService authServerService = new AuthServerService(keyCloakService, validator);
+
+    @Test
+    void shouldThrowKeycloakIntegrationException_whenRegistrationRequestIsMissingUsername() {
+        var request = UserRegistrationRequest.builder()
+                .password("Secret@123")
+                .email("john@test.com")
+                .firstName("John")
+                .lastName("Doe")
+                .role("CUSTOMER")
+                .build();
+
+        assertThatThrownBy(() -> authServerService.createUserInAuthServer(request))
+                .isInstanceOf(KeycloakIntegrationException.class)
+                .hasMessageContaining("UserRegistrationRequest validation failed")
+                .extracting(exception -> ((KeycloakIntegrationException) exception).getReason())
+                .isEqualTo(KeycloakErrorReason.INVALID_REQUEST);
+    }
+
+    @Test
+    void shouldThrowKeycloakIntegrationException_whenRegistrationRequestHasBlankRole() {
+        var request = UserRegistrationRequest.builder()
+                .username("john")
+                .password("Secret@123")
+                .email("john@test.com")
+                .firstName("John")
+                .lastName("Doe")
+                .role("")
+                .build();
+
+        assertThatThrownBy(() -> authServerService.createUserInAuthServer(request))
+                .isInstanceOf(KeycloakIntegrationException.class)
+                .hasMessageContaining("UserRegistrationRequest validation failed")
+                .extracting(exception -> ((KeycloakIntegrationException) exception).getReason())
+                .isEqualTo(KeycloakErrorReason.INVALID_REQUEST);
+    }
+
+    @Test
+    void shouldCreateUserAndAssignRole_whenRegistrationRequestIsValid() {
+        var request = UserRegistrationRequest.builder()
+                .username("john")
+                .password("Secret@123")
+                .email("john@test.com")
+                .firstName("John")
+                .lastName("Doe")
+                .role("CUSTOMER")
+                .build();
+
+        when(keyCloakService.createUser(any(UserCreationRequest.class))).thenReturn(Optional.of("user-id-123"));
+
+        authServerService.createUserInAuthServer(request);
+
+        verify(keyCloakService).assignClientRoleToUser("user-id-123", "CUSTOMER");
+    }
+
+    @Test
+    void shouldThrowKeycloakIntegrationException_whenUserCreationFailsInKeyCloak() {
+        var request = UserRegistrationRequest.builder()
+                .username("john")
+                .password("Secret@123")
+                .email("john@test.com")
+                .firstName("John")
+                .lastName("Doe")
+                .role("CUSTOMER")
+                .build();
+
+        when(keyCloakService.createUser(any(UserCreationRequest.class))).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> authServerService.createUserInAuthServer(request))
+                .isInstanceOf(KeycloakIntegrationException.class)
+                .extracting(exception -> ((KeycloakIntegrationException) exception).getReason())
+                .isEqualTo(KeycloakErrorReason.COMMUNICATION_ERROR);
+    }
+
+    @Test
+    void shouldReturnAccessToken_whenAuthenticationSucceeds() {
+        var request = KeyCloakAuthUserRequest.builder().username("john").password("Secret@123").build();
+        var tokenResponse = new AccessTokenResponse("access-token", 300, 1800, "refresh-token", "Bearer", 0, "session", "openid");
+        when(keyCloakService.getAccessTokenResponseForUsernameAndPasswordCombination("john", "Secret@123"))
+                .thenReturn(Optional.of(tokenResponse));
+
+        var response = authServerService.authenticate(request);
+
+        assertThat(response.accessToken()).isEqualTo("access-token");
+    }
+
+    @Test
+    void shouldThrowKeycloakIntegrationException_whenAuthenticationFails() {
+        var request = KeyCloakAuthUserRequest.builder().username("john").password("wrong-password").build();
+        when(keyCloakService.getAccessTokenResponseForUsernameAndPasswordCombination("john", "wrong-password"))
+                .thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> authServerService.authenticate(request))
+                .isInstanceOf(KeycloakIntegrationException.class)
+                .extracting(exception -> ((KeycloakIntegrationException) exception).getReason())
+                .isEqualTo(KeycloakErrorReason.INVALID_CREDENTIALS);
+    }
+
+    @Test
+    void shouldReturnUserDetailsWithRole_whenUserFoundByUsername() {
+        var rawUserDetails = new com.intellermatrix.keycloak.dto.user.UserDetailsResponse(
+                "user-id-123", "john", "john@test.com", "John", "Doe", true, true, 1234L, null, null);
+        var roles = List.of(new RoleDetailsResponse("role-id", "CUSTOMER", "Customer role", false, "client-uuid"));
+        when(keyCloakService.getUserWithRolesByUsername("john"))
+                .thenReturn(new UserWithRoles(rawUserDetails, roles));
+
+        var result = authServerService.getUserDetailsByUsername("john");
+
+        assertThat(result).isPresent();
+        assertThat(result.get().role()).isEqualTo("CUSTOMER");
+    }
+
+    @Test
+    void shouldReturnEmptyOptional_whenUserHasNoClientRoleAssigned() {
+        var rawUserDetails = new com.intellermatrix.keycloak.dto.user.UserDetailsResponse(
+                "user-id-123", "john", "john@test.com", "John", "Doe", true, true, 1234L, null, null);
+        when(keyCloakService.getUserWithRolesByUsername("john"))
+                .thenReturn(new UserWithRoles(rawUserDetails, List.of()));
+
+        var result = authServerService.getUserDetailsByUsername("john");
+
+        assertThat(result).isEmpty();
+    }
+
+    @Test
+    void shouldPropagateUnexpectedRuntimeException_whenUserLookupFailsUnexpectedly() {
+        when(keyCloakService.getUserWithRolesByUsername("john")).thenThrow(new IllegalStateException("bug"));
+
+        assertThatThrownBy(() -> authServerService.getUserDetailsByUsername("john"))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("bug");
+    }
+
+    @Test
+    void shouldPropagateException_whenClientRolesLookupFailsWithNonNotFoundReason() {
+        var communicationError = new KeycloakIntegrationException(KeycloakErrorReason.COMMUNICATION_ERROR,
+                "KeyCloak is unavailable", org.springframework.http.HttpStatus.BAD_GATEWAY);
+        when(keyCloakService.getUserWithRolesByUsername("john")).thenThrow(communicationError);
+
+        assertThatThrownBy(() -> authServerService.getUserDetailsByUsername("john"))
+                .isSameAs(communicationError);
+    }
+
+    @Test
+    void shouldPropagateUserAlreadyExists_whenKeyCloakReportsConflictOnCreate() {
+        var request = UserRegistrationRequest.builder()
+                .username("john")
+                .password("Secret@123")
+                .email("john@test.com")
+                .firstName("John")
+                .lastName("Doe")
+                .role("CUSTOMER")
+                .build();
+
+        when(keyCloakService.createUser(any(UserCreationRequest.class)))
+                .thenThrow(new KeycloakIntegrationException(KeycloakErrorReason.USER_ALREADY_EXISTS,
+                        "already exists", org.springframework.http.HttpStatus.CONFLICT));
+
+        assertThatThrownBy(() -> authServerService.createUserInAuthServer(request))
+                .isInstanceOf(KeycloakIntegrationException.class)
+                .extracting(exception -> ((KeycloakIntegrationException) exception).getReason())
+                .isEqualTo(KeycloakErrorReason.USER_ALREADY_EXISTS);
+    }
+
+    @Test
+    void shouldReturnEmptyOptional_whenUserNotFoundByUsername() {
+        when(keyCloakService.getUserWithRolesByUsername("missing")).thenThrow(
+                new KeycloakIntegrationException(KeycloakErrorReason.USER_NOT_FOUND, "not found", org.springframework.http.HttpStatus.NOT_FOUND));
+
+        var result = authServerService.getUserDetailsByUsername("missing");
+
+        assertThat(result).isEmpty();
+    }
+}

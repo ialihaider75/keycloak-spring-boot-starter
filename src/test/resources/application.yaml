@@ -1,0 +1,25 @@
+external-services:
+  keycloak:
+    connectivity:
+      timeout-in-ms: 5000
+    admin:
+      username: admin
+      password: admin
+      realm: master
+      client-id: admin-cli
+    realm:
+      id: starter-it-realm
+      display-name: Starter IT Realm
+      management:
+        client-id: realm-management
+      client:
+        id: starter-it-client
+        name: Starter IT Client
+        secret: starter-it-secret
+        redirect-uris:
+          - "http://localhost:8080/*"
+      roles:
+        - name: CUSTOMER
+          description: Customer role
+        - name: PHARMACY
+          description: Pharmacy role
