@@ -30,6 +30,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
@@ -281,6 +282,23 @@ class KeyCloakServiceTest {
     }
 
     @Test
+    void shouldThrowRoleNotFound_whenRoleDoesNotExistOnClient() {
+        when(keyCloakExchangeClient.getAccessTokenForRealm(eq("demo-realm"), any()))
+                .thenReturn(accessTokenResponse("client-token"));
+        when(keyCloakClientContext.getClientUuid()).thenReturn("client-uuid");
+        when(keyCloakExchangeClient.getClientRoleDetailsByRoleName(any(), eq("demo-realm"), eq("client-uuid"), eq("MISSING_ROLE")))
+                .thenThrow(new KeycloakIntegrationException(KeycloakErrorReason.INVALID_REQUEST,
+                        "not found", HttpStatus.NOT_FOUND));
+
+        assertThatThrownBy(() -> keyCloakService.getClientRoleDetailsByRoleName("MISSING_ROLE"))
+                .isInstanceOf(KeycloakIntegrationException.class)
+                .satisfies(exception -> assertThat(((KeycloakIntegrationException) exception).getHttpStatus())
+                        .isEqualTo(HttpStatus.NOT_FOUND))
+                .extracting(exception -> ((KeycloakIntegrationException) exception).getReason())
+                .isEqualTo(KeycloakErrorReason.ROLE_NOT_FOUND);
+    }
+
+    @Test
     void shouldThrowKeycloakIntegrationException_whenUserNotFoundByUsername() {
         when(keyCloakExchangeClient.getAccessTokenForRealm(eq("demo-realm"), any()))
                 .thenReturn(accessTokenResponse("client-token"));
@@ -359,6 +377,23 @@ class KeyCloakServiceTest {
         var expectedRoleAssignment = RoleAssignmentRequest.builder().id("role-id-123").name("CUSTOMER").build();
         verify(keyCloakExchangeClient).assignClientRoleToUser(any(), eq("demo-realm"), eq("user-id-123"),
                 eq("client-uuid"), eq(List.of(expectedRoleAssignment)));
+    }
+
+    @Test
+    void shouldPropagateRoleNotFound_whenAssigningRoleThatDoesNotExist() {
+        when(keyCloakExchangeClient.getAccessTokenForRealm(eq("demo-realm"), any()))
+                .thenReturn(accessTokenResponse("client-token"));
+        when(keyCloakClientContext.getClientUuid()).thenReturn("client-uuid");
+        when(keyCloakExchangeClient.getClientRoleDetailsByRoleName(any(), eq("demo-realm"), eq("client-uuid"), eq("MISSING_ROLE")))
+                .thenThrow(new KeycloakIntegrationException(KeycloakErrorReason.INVALID_REQUEST,
+                        "not found", HttpStatus.NOT_FOUND));
+
+        assertThatThrownBy(() -> keyCloakService.assignClientRoleToUser("user-id-123", "MISSING_ROLE"))
+                .isInstanceOf(KeycloakIntegrationException.class)
+                .extracting(exception -> ((KeycloakIntegrationException) exception).getReason())
+                .isEqualTo(KeycloakErrorReason.ROLE_NOT_FOUND);
+
+        verify(keyCloakExchangeClient, never()).assignClientRoleToUser(any(), anyString(), anyString(), anyString(), any());
     }
 
     @Test
