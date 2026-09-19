@@ -267,6 +267,21 @@ class KeyCloakServiceTest {
     }
 
     @Test
+    void shouldThrowCommunicationError_whenFetchingUserByUsernameFails() {
+        when(keyCloakExchangeClient.getAccessTokenForRealm(eq("demo-realm"), any()))
+                .thenReturn(accessTokenResponse("client-token"));
+        when(keyCloakExchangeClient.getUsersByUsername(any(), eq("demo-realm"), eq("john"), eq(true)))
+                .thenThrow(new RuntimeException("connection reset"));
+
+        assertThatThrownBy(() -> keyCloakService.getUserByUsername("john"))
+                .isInstanceOf(KeycloakIntegrationException.class)
+                .satisfies(exception -> assertThat(((KeycloakIntegrationException) exception).getHttpStatus())
+                        .isEqualTo(HttpStatus.BAD_GATEWAY))
+                .extracting(exception -> ((KeycloakIntegrationException) exception).getReason())
+                .isEqualTo(KeycloakErrorReason.COMMUNICATION_ERROR);
+    }
+
+    @Test
     void shouldReturnUserDetails_whenUserFoundByUsername() {
         when(keyCloakExchangeClient.getAccessTokenForRealm(eq("demo-realm"), any()))
                 .thenReturn(accessTokenResponse("client-token"));
@@ -360,6 +375,21 @@ class KeyCloakServiceTest {
         assertThat(result.username()).isEqualTo("john");
         verify(keyCloakExchangeClient).getUserById(eq("Bearer client-token"), eq("demo-realm"), eq("user-id-123"));
         verify(keyCloakExchangeClient, never()).getAccessTokenForRealm(eq("master"), any());
+    }
+
+    @Test
+    void shouldThrowCommunicationError_whenFetchingUserByIdFails() {
+        when(keyCloakExchangeClient.getAccessTokenForRealm(eq("demo-realm"), any()))
+                .thenReturn(accessTokenResponse("client-token"));
+        when(keyCloakExchangeClient.getUserById(any(), eq("demo-realm"), eq("user-id-123")))
+                .thenThrow(new RuntimeException("connection reset"));
+
+        assertThatThrownBy(() -> keyCloakService.getUserById("user-id-123"))
+                .isInstanceOf(KeycloakIntegrationException.class)
+                .satisfies(exception -> assertThat(((KeycloakIntegrationException) exception).getHttpStatus())
+                        .isEqualTo(HttpStatus.BAD_GATEWAY))
+                .extracting(exception -> ((KeycloakIntegrationException) exception).getReason())
+                .isEqualTo(KeycloakErrorReason.COMMUNICATION_ERROR);
     }
 
     @Test
