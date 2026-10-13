@@ -1,5 +1,6 @@
 package com.intellermatrix.keycloak.service;
 
+import com.intellermatrix.keycloak.auth.UserRegistrationRequest;
 import com.intellermatrix.keycloak.client.KeyCloakClientContext;
 import com.intellermatrix.keycloak.config.KeyCloakConfig;
 import com.intellermatrix.keycloak.config.RoleDefinition;
@@ -20,6 +21,7 @@ import jakarta.validation.Validation;
 import jakarta.validation.Validator;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 
@@ -556,6 +558,98 @@ class KeyCloakServiceTest {
         verify(keyCloakExchangeClient).getClientRoleDetailsByRoleName(eq("Bearer client-token"), eq("demo-realm"),
                 eq("client-uuid"), eq("CUSTOMER"));
         verify(keyCloakExchangeClient, never()).getAccessTokenForRealm(eq("master"), any());
+    }
+
+    @Test
+    void shouldBuildUserCreationRequestAndDelegate_whenCreatingUserFromRegistrationRequest() {
+        var request = UserRegistrationRequest.builder()
+                .username("john")
+                .password("Secret@123")
+                .email("john@test.com")
+                .firstName("John")
+                .lastName("Doe")
+                .role("CUSTOMER")
+                .build();
+        when(keyCloakExchangeClient.getAccessTokenForRealm(eq("demo-realm"), any()))
+                .thenReturn(accessTokenResponse("client-token"));
+        when(keyCloakExchangeClient.createUser(any(), eq("demo-realm"), any(UserCreationRequest.class)))
+                .thenReturn(ResponseEntity.created(URI.create("/admin/realms/demo-realm/users/user-id-123")).build());
+
+        var userId = keyCloakService.createUser(request);
+
+        assertThat(userId).contains("user-id-123");
+        var requestCaptor = ArgumentCaptor.forClass(UserCreationRequest.class);
+        verify(keyCloakExchangeClient).createUser(any(), eq("demo-realm"), requestCaptor.capture());
+        var capturedRequest = requestCaptor.getValue();
+        assertThat(capturedRequest.username()).isEqualTo("john");
+        assertThat(capturedRequest.email()).isEqualTo("john@test.com");
+        assertThat(capturedRequest.firstName()).isEqualTo("John");
+        assertThat(capturedRequest.lastName()).isEqualTo("Doe");
+        assertThat(capturedRequest.enabled()).isTrue();
+        assertThat(capturedRequest.emailVerified()).isFalse();
+        assertThat(capturedRequest.credentials()).hasSize(1);
+        assertThat(capturedRequest.credentials().getFirst().value()).isEqualTo("Secret@123");
+        assertThat(capturedRequest.credentials().getFirst().type()).isEqualTo("password");
+        assertThat(capturedRequest.credentials().getFirst().temporary()).isFalse();
+    }
+
+    @Test
+    void shouldReturnAuthUserDetailsWithRole_whenUserHasClientRole() {
+        when(keyCloakExchangeClient.getAccessTokenForRealm(eq("demo-realm"), any()))
+                .thenReturn(accessTokenResponse("client-token"));
+        when(keyCloakClientContext.getClientUuid()).thenReturn("client-uuid");
+        var userDetails = new UserDetailsResponse("user-id-123", "john", "john@test.com", "John", "Doe",
+                true, true, 1234L, null, null);
+        when(keyCloakExchangeClient.getUsersByUsername(any(), eq("demo-realm"), eq("john"), eq(true)))
+                .thenReturn(List.of(userDetails));
+        var roleDetails = new RoleDetailsResponse("role-id-123", "CUSTOMER", "Customer role", false, "client-uuid");
+        when(keyCloakExchangeClient.getClientRolesForUser(any(), eq("demo-realm"), eq("user-id-123"), eq("client-uuid")))
+                .thenReturn(List.of(roleDetails));
+
+        var result = keyCloakService.findUserDetailsByUsername("john");
+
+        assertThat(result).isPresent();
+        assertThat(result.get().id()).isEqualTo("user-id-123");
+        assertThat(result.get().role()).isEqualTo("CUSTOMER");
+    }
+
+    @Test
+    void shouldReturnAuthUserDetailsWithBlankRole_whenUserHasNoClientRole() {
+        when(keyCloakExchangeClient.getAccessTokenForRealm(eq("demo-realm"), any()))
+                .thenReturn(accessTokenResponse("client-token"));
+        when(keyCloakClientContext.getClientUuid()).thenReturn("client-uuid");
+        var userDetails = new UserDetailsResponse("user-id-123", "john", "john@test.com", "John", "Doe",
+                true, true, 1234L, null, null);
+        when(keyCloakExchangeClient.getUsersByUsername(any(), eq("demo-realm"), eq("john"), eq(true)))
+                .thenReturn(List.of(userDetails));
+        when(keyCloakExchangeClient.getClientRolesForUser(any(), eq("demo-realm"), eq("user-id-123"), eq("client-uuid")))
+                .thenReturn(List.of());
+
+        var result = keyCloakService.findUserDetailsByUsername("john");
+
+        assertThat(result).isPresent();
+        assertThat(result.get().role()).isNull();
+    }
+
+    @Test
+    void shouldReturnAccessTokenString_whenCredentialsAreValid() {
+        when(keyCloakExchangeClient.getAccessTokenForRealm(eq("demo-realm"), any()))
+                .thenReturn(accessTokenResponse("user-token"));
+
+        var result = keyCloakService.getAccessToken("john", "Secret@123");
+
+        assertThat(result).contains("user-token");
+    }
+
+    @Test
+    void shouldReturnEmptyOptional_whenGetAccessTokenCredentialsAreInvalid() {
+        when(keyCloakExchangeClient.getAccessTokenForRealm(eq("demo-realm"), any()))
+                .thenThrow(new KeycloakIntegrationException(KeycloakErrorReason.INVALID_REQUEST,
+                        "invalid_grant", HttpStatus.UNAUTHORIZED));
+
+        var result = keyCloakService.getAccessToken("john", "wrong-password");
+
+        assertThat(result).isEmpty();
     }
 
     private UserCreationRequest validUserCreationRequest() {

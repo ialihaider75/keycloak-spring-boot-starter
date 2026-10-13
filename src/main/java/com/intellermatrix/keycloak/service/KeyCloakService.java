@@ -1,5 +1,7 @@
 package com.intellermatrix.keycloak.service;
 
+import com.intellermatrix.keycloak.auth.KeycloakGateway;
+import com.intellermatrix.keycloak.auth.UserRegistrationRequest;
 import com.intellermatrix.keycloak.client.KeyCloakClientContext;
 import com.intellermatrix.keycloak.config.KeyCloakConfig;
 import com.intellermatrix.keycloak.constant.HttpHeaderConstants;
@@ -29,7 +31,9 @@ import java.util.Optional;
 @Service
 @RequiredArgsConstructor
 @Slf4j
-public class KeyCloakService {
+public class KeyCloakService implements KeycloakGateway {
+
+    private static final String CREDENTIAL_TYPE_PASSWORD = "password";
 
     private final KeyCloakExchangeClient keyCloakManagementExchangeClient;
     private final KeyCloakExchangeClient keyCloakExchangeClient;
@@ -107,6 +111,24 @@ public class KeyCloakService {
         }
     }
 
+    @Override
+    public Optional<String> createUser(UserRegistrationRequest request) {
+        var userCreationRequest = UserCreationRequest.builder()
+                .username(request.username())
+                .credentials(List.of(UserCreationRequest.CredentialRepresentation.builder()
+                        .value(request.password())
+                        .type(CREDENTIAL_TYPE_PASSWORD)
+                        .temporary(false)
+                        .build()))
+                .enabled(true)
+                .email(request.email())
+                .firstName(request.firstName())
+                .lastName(request.lastName())
+                .emailVerified(false)
+                .build();
+        return createUser(userCreationRequest);
+    }
+
     public Optional<String> createUser(UserCreationRequest userRequest) {
 
         validateUserCreationRequest(userRequest);
@@ -168,6 +190,12 @@ public class KeyCloakService {
         }
     }
 
+    @Override
+    public Optional<String> getAccessToken(String username, String password) {
+        return getAccessTokenResponseForUsernameAndPasswordCombination(username, password)
+                .map(AccessTokenResponse::accessToken);
+    }
+
     public RoleDetailsResponse getClientRoleDetailsByRoleName(String roleName) {
         var clientAccessToken = getClientAccessToken();
         var bearerToken = String.format(HttpHeaderConstants.BEARER_TOKEN_FORMAT, clientAccessToken);
@@ -207,6 +235,7 @@ public class KeyCloakService {
         }
     }
 
+    @Override
     public void assignClientRoleToUser(String userId, String roleName) {
         var clientAccessToken = getClientAccessToken();
         var bearerToken = String.format(HttpHeaderConstants.BEARER_TOKEN_FORMAT, clientAccessToken);
@@ -308,6 +337,15 @@ public class KeyCloakService {
 
         log.info("User details retrieved successfully for username: {}", username);
         return users.getFirst();
+    }
+
+    @Override
+    public Optional<com.intellermatrix.keycloak.auth.UserDetailsResponse> findUserDetailsByUsername(String username) {
+        var userWithRoles = getUserWithRolesByUsername(username);
+        var roleDetails = userWithRoles.roles().isEmpty()
+                ? new RoleDetailsResponse(null, null, null, null, null)
+                : userWithRoles.roles().getFirst();
+        return Optional.of(com.intellermatrix.keycloak.auth.UserDetailsResponse.of(userWithRoles.userDetails(), roleDetails));
     }
 
     public UserWithRoles getUserWithRolesByUsername(String username) {
