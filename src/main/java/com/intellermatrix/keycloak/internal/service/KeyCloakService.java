@@ -345,7 +345,20 @@ public class KeyCloakService implements KeycloakGateway {
         var roleDetails = userWithRoles.roles().isEmpty()
                 ? new RoleDetailsResponse(null, null, null, null, null)
                 : userWithRoles.roles().getFirst();
-        return Optional.of(com.intellermatrix.keycloak.auth.UserDetailsResponse.of(userWithRoles.userDetails(), roleDetails));
+        var userDetails = userWithRoles.userDetails();
+        return Optional.of(com.intellermatrix.keycloak.auth.UserDetailsResponse.builder()
+                .id(userDetails.id())
+                .username(userDetails.username())
+                .email(userDetails.email())
+                .firstName(userDetails.firstName())
+                .lastName(userDetails.lastName())
+                .enabled(userDetails.enabled())
+                .emailVerified(userDetails.emailVerified())
+                .createdTimestamp(userDetails.createdTimestamp())
+                .attributes(userDetails.attributes())
+                .requiredActions(userDetails.requiredActions())
+                .role(roleDetails.name())
+                .build());
     }
 
     public UserWithRoles getUserWithRolesByUsername(String username) {
