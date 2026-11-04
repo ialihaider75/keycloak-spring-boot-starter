@@ -1,17 +1,11 @@
 package com.intellermatrix.keycloak.auth;
 
-import com.intellermatrix.keycloak.dto.AccessTokenResponse;
-import com.intellermatrix.keycloak.dto.role.RoleDetailsResponse;
-import com.intellermatrix.keycloak.dto.user.UserCreationRequest;
 import com.intellermatrix.keycloak.exception.KeycloakErrorReason;
 import com.intellermatrix.keycloak.exception.KeycloakIntegrationException;
-import com.intellermatrix.keycloak.service.KeyCloakService;
-import com.intellermatrix.keycloak.service.UserWithRoles;
 import jakarta.validation.Validation;
 import jakarta.validation.Validator;
 import org.junit.jupiter.api.Test;
 
-import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -23,9 +17,9 @@ import static org.mockito.Mockito.when;
 
 class AuthServerServiceTest {
 
-    private final KeyCloakService keyCloakService = mock(KeyCloakService.class);
+    private final KeycloakGateway keycloakGateway = mock(KeycloakGateway.class);
     private final Validator validator = Validation.buildDefaultValidatorFactory().getValidator();
-    private final AuthServerService authServerService = new AuthServerService(keyCloakService, validator);
+    private final AuthServerService authServerService = new AuthServerService(keycloakGateway, validator);
 
     @Test
     void shouldThrowKeycloakIntegrationException_whenRegistrationRequestIsMissingUsername() {
@@ -73,11 +67,11 @@ class AuthServerServiceTest {
                 .role("CUSTOMER")
                 .build();
 
-        when(keyCloakService.createUser(any(UserCreationRequest.class))).thenReturn(Optional.of("user-id-123"));
+        when(keycloakGateway.createUser(any(UserRegistrationRequest.class))).thenReturn(Optional.of("user-id-123"));
 
         authServerService.createUserInAuthServer(request);
 
-        verify(keyCloakService).assignClientRoleToUser("user-id-123", "CUSTOMER");
+        verify(keycloakGateway).assignClientRoleToUser("user-id-123", "CUSTOMER");
     }
 
     @Test
@@ -91,7 +85,7 @@ class AuthServerServiceTest {
                 .role("CUSTOMER")
                 .build();
 
-        when(keyCloakService.createUser(any(UserCreationRequest.class))).thenReturn(Optional.empty());
+        when(keycloakGateway.createUser(any(UserRegistrationRequest.class))).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> authServerService.createUserInAuthServer(request))
                 .isInstanceOf(KeycloakIntegrationException.class)
@@ -102,9 +96,7 @@ class AuthServerServiceTest {
     @Test
     void shouldReturnAccessToken_whenAuthenticationSucceeds() {
         var request = KeyCloakAuthUserRequest.builder().username("john").password("Secret@123").build();
-        var tokenResponse = new AccessTokenResponse("access-token", 300, 1800, "refresh-token", "Bearer", 0, "session", "openid");
-        when(keyCloakService.getAccessTokenResponseForUsernameAndPasswordCombination("john", "Secret@123"))
-                .thenReturn(Optional.of(tokenResponse));
+        when(keycloakGateway.getAccessToken("john", "Secret@123")).thenReturn(Optional.of("access-token"));
 
         var response = authServerService.authenticate(request);
 
@@ -114,8 +106,7 @@ class AuthServerServiceTest {
     @Test
     void shouldThrowKeycloakIntegrationException_whenAuthenticationFails() {
         var request = KeyCloakAuthUserRequest.builder().username("john").password("wrong-password").build();
-        when(keyCloakService.getAccessTokenResponseForUsernameAndPasswordCombination("john", "wrong-password"))
-                .thenReturn(Optional.empty());
+        when(keycloakGateway.getAccessToken("john", "wrong-password")).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> authServerService.authenticate(request))
                 .isInstanceOf(KeycloakIntegrationException.class)
@@ -125,11 +116,12 @@ class AuthServerServiceTest {
 
     @Test
     void shouldReturnUserDetailsWithRole_whenUserFoundByUsername() {
-        var rawUserDetails = new com.intellermatrix.keycloak.dto.user.UserDetailsResponse(
-                "user-id-123", "john", "john@test.com", "John", "Doe", true, true, 1234L, null, null);
-        var roles = List.of(new RoleDetailsResponse("role-id", "CUSTOMER", "Customer role", false, "client-uuid"));
-        when(keyCloakService.getUserWithRolesByUsername("john"))
-                .thenReturn(new UserWithRoles(rawUserDetails, roles));
+        var userDetails = UserDetailsResponse.builder()
+                .id("user-id-123")
+                .username("john")
+                .role("CUSTOMER")
+                .build();
+        when(keycloakGateway.findUserDetailsByUsername("john")).thenReturn(Optional.of(userDetails));
 
         var result = authServerService.getUserDetailsByUsername("john");
 
@@ -139,10 +131,12 @@ class AuthServerServiceTest {
 
     @Test
     void shouldReturnEmptyOptional_whenUserHasNoClientRoleAssigned() {
-        var rawUserDetails = new com.intellermatrix.keycloak.dto.user.UserDetailsResponse(
-                "user-id-123", "john", "john@test.com", "John", "Doe", true, true, 1234L, null, null);
-        when(keyCloakService.getUserWithRolesByUsername("john"))
-                .thenReturn(new UserWithRoles(rawUserDetails, List.of()));
+        var userDetails = UserDetailsResponse.builder()
+                .id("user-id-123")
+                .username("john")
+                .role(null)
+                .build();
+        when(keycloakGateway.findUserDetailsByUsername("john")).thenReturn(Optional.of(userDetails));
 
         var result = authServerService.getUserDetailsByUsername("john");
 
@@ -151,7 +145,7 @@ class AuthServerServiceTest {
 
     @Test
     void shouldPropagateUnexpectedRuntimeException_whenUserLookupFailsUnexpectedly() {
-        when(keyCloakService.getUserWithRolesByUsername("john")).thenThrow(new IllegalStateException("bug"));
+        when(keycloakGateway.findUserDetailsByUsername("john")).thenThrow(new IllegalStateException("bug"));
 
         assertThatThrownBy(() -> authServerService.getUserDetailsByUsername("john"))
                 .isInstanceOf(IllegalStateException.class)
@@ -162,7 +156,7 @@ class AuthServerServiceTest {
     void shouldPropagateException_whenClientRolesLookupFailsWithNonNotFoundReason() {
         var communicationError = new KeycloakIntegrationException(KeycloakErrorReason.COMMUNICATION_ERROR,
                 "KeyCloak is unavailable", org.springframework.http.HttpStatus.BAD_GATEWAY);
-        when(keyCloakService.getUserWithRolesByUsername("john")).thenThrow(communicationError);
+        when(keycloakGateway.findUserDetailsByUsername("john")).thenThrow(communicationError);
 
         assertThatThrownBy(() -> authServerService.getUserDetailsByUsername("john"))
                 .isSameAs(communicationError);
@@ -179,7 +173,7 @@ class AuthServerServiceTest {
                 .role("CUSTOMER")
                 .build();
 
-        when(keyCloakService.createUser(any(UserCreationRequest.class)))
+        when(keycloakGateway.createUser(any(UserRegistrationRequest.class)))
                 .thenThrow(new KeycloakIntegrationException(KeycloakErrorReason.USER_ALREADY_EXISTS,
                         "already exists", org.springframework.http.HttpStatus.CONFLICT));
 
@@ -191,7 +185,7 @@ class AuthServerServiceTest {
 
     @Test
     void shouldReturnEmptyOptional_whenUserNotFoundByUsername() {
-        when(keyCloakService.getUserWithRolesByUsername("missing")).thenThrow(
+        when(keycloakGateway.findUserDetailsByUsername("missing")).thenThrow(
                 new KeycloakIntegrationException(KeycloakErrorReason.USER_NOT_FOUND, "not found", org.springframework.http.HttpStatus.NOT_FOUND));
 
         var result = authServerService.getUserDetailsByUsername("missing");
