@@ -1,1 +1,1 @@
-com.intellermatrix.keycloak.config.KeycloakAutoConfiguration
+com.intellermatrix.keycloak.internal.config.KeycloakAutoConfiguration
