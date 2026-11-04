@@ -113,9 +113,13 @@ Inject `AuthServerService` — the supported entry point for consumers:
 | `KeyCloakAuthUserResponse authenticate(KeyCloakAuthUserRequest request)` | Password (direct access) grant login; returns the access token. | `KeycloakIntegrationException` with `INVALID_REQUEST` or `INVALID_CREDENTIALS` |
 | `Optional<UserDetailsResponse> getUserDetailsByUsername(String username)` | Exact-match user lookup enriched with the user's first client role. | Empty `Optional` when the user does not exist or has no client role |
 
-`KeyCloakService` is also a public bean for lower-level needs (`pingKeyCloak`, `createUser`,
-`assignClientRoleToUser`, `getUserClientRoles`, `getUserByUsername`, `getUserById`, token
-acquisition).
+`internal.service.KeyCloakService` is registered as a Spring bean — Spring's component scan makes
+it injectable by type even though it lives under `internal.*` — but it is **not** part of the
+public API (see [section 5](#5-internal-packages)). Its lower-level methods (`pingKeyCloak`,
+`createUser`, `assignClientRoleToUser`, `getUserClientRoles`, `getUserByUsername`, `getUserById`,
+token acquisition) exist to implement `AuthServerService` and the startup initializer, not for
+consumers to call directly. If you need one of these operations from your own code, that is a gap
+in `AuthServerService` worth raising as an issue, not a reason to autowire `KeyCloakService`.
 
 Every failure surfaces as `KeycloakIntegrationException`, which carries a
 `KeycloakErrorReason` (`COMMUNICATION_ERROR`, `USER_NOT_FOUND`, `USER_ALREADY_EXISTS`,

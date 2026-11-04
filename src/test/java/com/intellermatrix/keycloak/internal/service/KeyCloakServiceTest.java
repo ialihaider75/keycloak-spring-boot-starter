@@ -27,6 +27,7 @@ import org.springframework.http.ResponseEntity;
 
 import java.net.URI;
 import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
@@ -598,8 +599,10 @@ class KeyCloakServiceTest {
         when(keyCloakExchangeClient.getAccessTokenForRealm(eq("demo-realm"), any()))
                 .thenReturn(accessTokenResponse("client-token"));
         when(keyCloakClientContext.getClientUuid()).thenReturn("client-uuid");
+        var attributes = Map.of("department", List.of("pharmacy"));
+        var requiredActions = List.of("VERIFY_EMAIL");
         var userDetails = new UserDetailsResponse("user-id-123", "john", "john@test.com", "John", "Doe",
-                true, true, 1234L, null, null);
+                true, true, 1234L, attributes, requiredActions);
         when(keyCloakExchangeClient.getUsersByUsername(any(), eq("demo-realm"), eq("john"), eq(true)))
                 .thenReturn(List.of(userDetails));
         var roleDetails = new RoleDetailsResponse("role-id-123", "CUSTOMER", "Customer role", false, "client-uuid");
@@ -609,8 +612,18 @@ class KeyCloakServiceTest {
         var result = keyCloakService.findUserDetailsByUsername("john");
 
         assertThat(result).isPresent();
-        assertThat(result.get().id()).isEqualTo("user-id-123");
-        assertThat(result.get().role()).isEqualTo("CUSTOMER");
+        var authUserDetails = result.get();
+        assertThat(authUserDetails.id()).isEqualTo("user-id-123");
+        assertThat(authUserDetails.username()).isEqualTo("john");
+        assertThat(authUserDetails.email()).isEqualTo("john@test.com");
+        assertThat(authUserDetails.firstName()).isEqualTo("John");
+        assertThat(authUserDetails.lastName()).isEqualTo("Doe");
+        assertThat(authUserDetails.enabled()).isTrue();
+        assertThat(authUserDetails.emailVerified()).isTrue();
+        assertThat(authUserDetails.createdTimestamp()).isEqualTo(1234L);
+        assertThat(authUserDetails.attributes()).isEqualTo(attributes);
+        assertThat(authUserDetails.requiredActions()).isEqualTo(requiredActions);
+        assertThat(authUserDetails.role()).isEqualTo("CUSTOMER");
     }
 
     @Test
