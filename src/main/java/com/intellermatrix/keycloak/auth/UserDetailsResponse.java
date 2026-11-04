@@ -1,6 +1,6 @@
 package com.intellermatrix.keycloak.auth;
 
-import com.intellermatrix.keycloak.dto.role.RoleDetailsResponse;
+import com.intellermatrix.keycloak.internal.dto.role.RoleDetailsResponse;
 import lombok.Builder;
 
 import java.util.List;
@@ -19,7 +19,7 @@ public record UserDetailsResponse(String id,
                                   List<String> requiredActions,
                                   String role) {
 
-    public static UserDetailsResponse of(com.intellermatrix.keycloak.dto.user.UserDetailsResponse userDetailsResponse,
+    public static UserDetailsResponse of(com.intellermatrix.keycloak.internal.dto.user.UserDetailsResponse userDetailsResponse,
                                          RoleDetailsResponse roleDetailsResponse) {
         return UserDetailsResponse.builder()
                 .id(userDetailsResponse.id())
