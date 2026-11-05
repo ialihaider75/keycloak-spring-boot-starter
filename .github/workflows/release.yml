@@ -36,7 +36,7 @@ jobs:
 
       - name: Configure GPG for non-interactive signing
         run: |
-          echo "GPG_TTY=$(tty || echo /dev/null)" >> "$GITHUB_ENV"
+          echo "GPG_TTY=/dev/null" >> "$GITHUB_ENV"
           mkdir -p ~/.gnupg
           echo "allow-loopback-pinentry" >> ~/.gnupg/gpg-agent.conf
           echo "pinentry-mode loopback" >> ~/.gnupg/gpg.conf
