@@ -1,14 +1,20 @@
 # Keycloak Spring Boot Starter
 
+[![Maven Central](https://img.shields.io/maven-central/v/com.intellermatrix/keycloak-spring-boot-starter.svg)](https://central.sonatype.com/artifact/com.intellermatrix/keycloak-spring-boot-starter)
+[![CI](https://github.com/ialihaider75/keycloak-spring-boot-starter/actions/workflows/pr-checks.yml/badge.svg)](https://github.com/ialihaider75/keycloak-spring-boot-starter/actions/workflows/pr-checks.yml)
+[![License](https://img.shields.io/github/license/ialihaider75/keycloak-spring-boot-starter)](LICENSE)
+
 A reusable Spring Boot starter for integrating applications with Keycloak.
 
 ## Status
 
-🚧 **Work in Progress**
+✅ **Stable — `1.0.0`**
 
-This project is currently being extracted from an existing application into a reusable Spring Boot starter.
-
-The API, configuration properties, and supported Keycloak features are subject to change until the first stable release.
+This is the first stable release, published to Maven Central. The public API —
+`com.intellermatrix.keycloak.auth` and `com.intellermatrix.keycloak.exception` — now carries normal
+semantic-versioning stability guarantees: additions are backwards compatible, and any breaking
+change ships as a new major version. Everything under `com.intellermatrix.keycloak.internal` remains
+an implementation detail (see "Internal packages" below) and is not covered by this guarantee.
 
 ## Goals
 
@@ -35,7 +41,7 @@ The starter is intended to:
 <dependency>
     <groupId>com.intellermatrix</groupId>
     <artifactId>keycloak-spring-boot-starter</artifactId>
-    <version>0.0.1-SNAPSHOT</version>
+    <version>1.0.0</version>
 </dependency>
 ```
 
@@ -226,3 +232,7 @@ this library promises stability.
   the reason those three preparator classes stay `public` instead of package-private: a test that
   needs to reach a class by name from another package is a real reason to keep that class public,
   the same as any other caller would be.
+
+## License
+
+Licensed under the [Apache License, Version 2.0](LICENSE).
