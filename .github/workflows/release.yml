@@ -1,0 +1,62 @@
+name: Release
+
+on:
+  workflow_dispatch: {}
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      CENTRAL_TOKEN_USERNAME: ${{ secrets.CENTRAL_TOKEN_USERNAME }}
+      CENTRAL_TOKEN_PASSWORD: ${{ secrets.CENTRAL_TOKEN_PASSWORD }}
+      GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up JDK 21 and Maven/GPG credentials
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          server-id: central
+          server-username: CENTRAL_TOKEN_USERNAME
+          server-password: CENTRAL_TOKEN_PASSWORD
+          gpg-private-key: ${{ secrets.GPG_PRIVATE_KEY }}
+          gpg-passphrase: GPG_PASSPHRASE
+
+      - name: Configure GPG for non-interactive signing
+        run: |
+          echo "GPG_TTY=$(tty || echo /dev/null)" >> "$GITHUB_ENV"
+          mkdir -p ~/.gnupg
+          echo "allow-loopback-pinentry" >> ~/.gnupg/gpg-agent.conf
+          echo "pinentry-mode loopback" >> ~/.gnupg/gpg.conf
+          gpgconf --reload gpg-agent
+
+      - name: Compute release version
+        run: |
+          VERSION=$(.github/scripts/compute-release-version.sh)
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          ./mvnw -q -B versions:set -DnewVersion="$VERSION" -DgenerateBackupPoms=false
+
+      - name: Run full verify (unit + Testcontainers integration tests)
+        run: ./mvnw -B verify
+
+      - name: Deploy to Central Portal
+        run: ./mvnw -B deploy -DskipTests -Dgpg.passphrase="${{ secrets.GPG_PASSPHRASE }}"
+
+      - name: Tag the release
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag "v$VERSION"
+          git push origin "v$VERSION"
