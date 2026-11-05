@@ -37,6 +37,11 @@
 	</scm>
 	<properties>
 		<java.version>21</java.version>
+		<!-- maven-gpg-plugin's sign goal is bound to the verify phase, so every plain
+		     `mvn verify` - local dev machines, pr-checks.yml - would otherwise try to sign
+		     and fail with no GPG key configured. Default to skipped; release.yml is the only
+		     place that explicitly passes -Dgpg.skip=false, where a real key is imported. -->
+		<gpg.skip>true</gpg.skip>
 		<!-- Spring Boot 3.4.5's managed Testcontainers (1.20.6) negotiates an outdated
 		     Docker API version against newer Docker Engine releases on GitHub Actions'
 		     ubuntu-latest runners ("client version 1.32 is too old. Minimum supported

@@ -52,7 +52,7 @@ jobs:
         run: ./mvnw -B verify
 
       - name: Deploy to Central Portal
-        run: ./mvnw -B deploy -DskipTests -Dgpg.passphrase="${{ secrets.GPG_PASSPHRASE }}"
+        run: ./mvnw -B deploy -DskipTests -Dgpg.skip=false -Dgpg.passphrase="${{ secrets.GPG_PASSPHRASE }}"
 
       - name: Tag the release
         run: |
