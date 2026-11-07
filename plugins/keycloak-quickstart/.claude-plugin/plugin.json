@@ -1,0 +1,9 @@
+{
+  "name": "keycloak-quickstart",
+  "description": "One-shot integration of the keycloak-spring-boot-starter library into a Spring Boot project: adds the dependency, writes the configuration, and sets up a local Keycloak+Postgres dev environment.",
+  "version": "1.0.0",
+  "author": {
+    "name": "Ali Haider",
+    "url": "https://ialihaider75.github.io"
+  }
+}
