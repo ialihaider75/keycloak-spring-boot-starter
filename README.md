@@ -181,6 +181,9 @@ claude plugin marketplace add ialihaider75/keycloak-spring-boot-starter
 claude plugin install keycloak-quickstart@keycloak-spring-boot-starter
 ```
 
+**Restart your Claude Code session after installing** — a running session doesn't pick up a
+newly installed plugin's skill until it's restarted.
+
 Then ask Claude to add Keycloak authentication to the project — the skill triggers
 automatically on a matching request, or run it explicitly with `/keycloak-quickstart:setup`.
 
