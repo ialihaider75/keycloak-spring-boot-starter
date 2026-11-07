@@ -164,6 +164,26 @@ annotation and flags a visible warning when code outside this library references
 README first. This is not a compiler error: `javac`, Maven, and non-IntelliJ tooling do not enforce
 it, so nothing stops it from compiling if the warning is ignored.
 
+## Using Claude Code? Install the integration skill
+
+This repo also publishes a Claude Code plugin, `keycloak-quickstart`, that automates the steps
+in "Usage" above against your own Spring Boot project: it adds the dependency, asks only for
+your project-specific values (realm, client, secret, redirect URI, roles) one at a time, and
+writes the configuration and a local Keycloak+Postgres `docker-compose.yml` for you. It does
+**not** write a controller — wiring `AuthServerService` into your own business logic stays
+yours to do.
+
+In a Claude Code session, from the root of the Spring Boot project you want to integrate this
+library into:
+
+```bash
+claude plugin marketplace add ialihaider75/keycloak-spring-boot-starter
+claude plugin install keycloak-quickstart@keycloak-spring-boot-starter
+```
+
+Then ask Claude to add Keycloak authentication to the project — the skill triggers
+automatically on a matching request, or run it explicitly with `/keycloak-quickstart:setup`.
+
 ## Development
 
 ### Building and testing

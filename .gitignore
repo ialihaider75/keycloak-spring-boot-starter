@@ -36,4 +36,4 @@ build/
 .worktrees/
 
 ### Local SDD working docs (plans, specs, review reports) ###
-docs/
+local/
